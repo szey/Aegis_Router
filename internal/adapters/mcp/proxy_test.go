@@ -141,6 +141,11 @@ func TestWorkloadExecutionProofFailuresNeverConsumePermitOrReachUpstream(t *test
 			t.Fatalf("wrong executor audit=%#v exists=%v", auditRecord, ok)
 		}
 		assertIssued(t, item)
+		proof := signExecutionProof(t, item.authorized, testWorkloadPrivateKey(), fmt.Sprintf("nonce-%d", proofNonce.Add(1)))
+		accepted := invokeWithProof(t, item.proxy, item.authorized.Permit.PermitToken, proof, item.action, item.action.Tool.Name, item.action.Action.Arguments)
+		if accepted.Code != http.StatusOK || item.calls.Load() != 1 {
+			t.Fatalf("valid request after missing proof status=%d calls=%d body=%s", accepted.Code, item.calls.Load(), accepted.Body.String())
+		}
 	})
 
 	t.Run("another workload key", func(t *testing.T) {

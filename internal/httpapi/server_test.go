@@ -197,6 +197,32 @@ func TestTrustedProxyAuthorizationExecutesOneNormalizedPaymentThroughMCP(t *test
 		t.Fatalf("trusted proxy provenance = %#v", provenance)
 	}
 
+	checkBody, _ := json.Marshal(map[string]any{
+		"permit_token": authorized.Permit.PermitToken,
+		"action":       structuredSafeRequest(),
+	})
+	checkRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/permits/verify", bytes.NewReader(checkBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkRequest.Header.Set("Content-Type", "application/json")
+	checkResponse, err := server.Client().Do(checkRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checkResponse.Body.Close()
+	var checked models.PermitVerification
+	if err := json.NewDecoder(checkResponse.Body).Decode(&checked); err != nil {
+		t.Fatal(err)
+	}
+	if checkResponse.StatusCode != http.StatusOK || checked.Verified || checked.Outcome != "VALID_NOT_CONSUMED" || checked.State != "ISSUED" {
+		t.Fatalf("diagnostic check status=%d result=%#v", checkResponse.StatusCode, checked)
+	}
+	permitRecord, ok := r.GetPermit(authorized.Permit.PermitID)
+	if !ok || permitRecord.State != "ISSUED" {
+		t.Fatalf("diagnostic HTTP route consumed Permit: %#v exists=%v", permitRecord, ok)
+	}
+
 	mcpBody := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"payment.send","arguments":{"currency":"USD","recipient":"merchant-456","amount_minor":100},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`)
 	executeRequest, err := http.NewRequest(http.MethodPost, server.URL+"/mcp", bytes.NewReader(mcpBody))
 	if err != nil {
@@ -477,7 +503,7 @@ func TestAuthorizeIssuesPermitWithoutInventingRuntimeEvents(t *testing.T) {
 	}
 }
 
-func TestActionPermitAPIReturnsCredentialOnceAndNeverListsIt(t *testing.T) {
+func TestActionPermitAPINeverListsCredentialAndVerifyRouteOnlyChecks(t *testing.T) {
 	handler := testHandler(t)
 	input := structuredSafeRequest()
 	input.Action.Arguments = json.RawMessage(`{"amount_minor":100,"currency":"USD","recipient":"merchant-456"}`)
@@ -519,7 +545,7 @@ func TestActionPermitAPIReturnsCredentialOnceAndNeverListsIt(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&first); err != nil {
 		t.Fatal(err)
 	}
-	if !first.Verified || first.Outcome != "VERIFIED" {
+	if first.Verified || first.Outcome != "VALID_NOT_CONSUMED" || first.State != "ISSUED" {
 		t.Fatalf("first verification = %#v", first)
 	}
 
@@ -530,8 +556,15 @@ func TestActionPermitAPIReturnsCredentialOnceAndNeverListsIt(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&second); err != nil {
 		t.Fatal(err)
 	}
-	if second.Verified || second.Outcome != "REPLAYED" {
+	if second.Verified || second.Outcome != "VALID_NOT_CONSUMED" || second.State != "ISSUED" {
 		t.Fatalf("second verification = %#v", second)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/permits/"+authorized.Permit.PermitID, nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"ISSUED"`) {
+		t.Fatalf("HTTP check consumed Permit: status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

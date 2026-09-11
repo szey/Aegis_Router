@@ -78,7 +78,7 @@ Issuance and verification use a `KeyProvider` abstraction to obtain the current 
 
 ### Verification and replay defense
 
-The execution boundary validates signature, issuer, expiry, `permit_class`, principal/Agent/workload, tool, resource, operation, profile version, audience, and action digest, then atomically consumes the permit. Every `execution` Permit also carries mandatory signed `executor_key_id` and `executor_key_thumbprint` (`sha256:<64 lowercase hex>`) claims; `simulation` Permits carry neither. Normal `VerifyAndConsume` and MCP accept only `execution`; the server-owned Demo verifier accepts only `simulation`. Only an `execution` Permit that returns `VERIFIED` may call upstream. Failure outcomes include invalid signature/class, expiry, revocation, `WRONG_EXECUTOR`, action mismatch, and replay.
+The execution boundary validates signature, issuer, expiry, `permit_class`, principal/Agent/workload, tool, resource, operation, profile version, audience, action digest, and workload proof, then atomically consumes the permit through the single `VerifyExecutionAndConsume` entry point. Every `execution` Permit also carries mandatory signed `executor_key_id` and `executor_key_thumbprint` (`sha256:<64 lowercase hex>`) claims; `simulation` Permits carry neither. There is no public proof-free execution-consumption method. The server-owned Demo verifier remains separate and accepts only `simulation`. Only an execution-boundary result of `VERIFIED` may call upstream. Failure outcomes include invalid signature/class, expiry, revocation, `WRONG_EXECUTOR`, action mismatch, and replay.
 
 `permit_class` is selected by the server entry point and covered by the signature; request callers cannot set or override it. Old execution tokens without executor-key claims are invalid and must be re-authorized and reissued. No compatibility branch treats a missing class or missing workload-key binding as executable.
 
@@ -214,12 +214,12 @@ Legacy flat request compatibility is **not execution-Permit eligible**. `Router.
 Focused APIs:
 
 - `POST /api/actions/authorize` — authorize a normalized action; success returns a decision and a permit object containing `permit_id`, `permit_token`, and `expires_at`;
-- `POST /api/permits/verify` — verify and atomically consume a Permit at a trusted execution boundary;
+- `POST /api/permits/verify` — check Permit and action consistency without workload proof or consumption; a valid check returns `VALID_NOT_CONSUMED` with `verified=false`;
 - `POST /api/permits/{id}/revoke` — revoke an unconsumed permit;
 - `GET /api/permits` and `GET /api/permits/{id}` — return safe metadata only;
 - `GET /api/decisions` and `GET /api/audits` — read authorization decisions and audit receipts.
 
-The MCP adapter directly reuses the same verifier. Every HTTP authorization endpoint first crosses `TrustedAuthorizationIntake` and the Router still accepts execution authorization only through sealed `intake.Authorization`; it has no normal Permit-issuance method that accepts a naked `models.Request`. Process locality alone is not identity provenance. `POST /api/permits/verify` is for trusted, controlled integrations and is not network identity authentication. `/api/authorize`, `/api/runtime-events`, and `/api/route` remain temporarily as compatibility endpoints; compatibility authorization also crosses the selected intake.
+The MCP adapter calls the verifier's single proof-bearing `VerifyExecutionAndConsume` entry point. Every HTTP authorization endpoint first crosses `TrustedAuthorizationIntake` and the Router still accepts execution authorization only through sealed `intake.Authorization`; it has no normal Permit-issuance method that accepts a naked `models.Request`. Process locality alone is not identity provenance. `POST /api/permits/verify` is diagnostic only: it never consumes a Permit and never returns execution-authoritative `VERIFIED`. Real execution consumption is reachable only through the proof-bearing execution entry used by `/mcp`. `/api/authorize`, `/api/runtime-events`, and `/api/route` remain temporarily as compatibility endpoints; compatibility authorization also crosses the selected intake.
 
 ## UI
 

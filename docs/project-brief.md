@@ -139,7 +139,7 @@ RuntimeEvent and its source/trust model remain, but only as during- or post-exec
 
 ## API and UI
 
-Primary APIs are `POST /api/actions/authorize`, `POST /api/permits/verify`, Permit revoke/list/detail, `GET /api/decisions`, and `GET /api/audits`. The MCP adapter reuses the verifier as a trusted execution-boundary library. Every HTTP authorization endpoint crosses Trusted Intake; it fails closed when unconfigured, and the loopback body intake is explicit development mode only. The public verify endpoint is for controlled integration and does not provide network identity authentication. Legacy `/api/authorize`, `/api/route`, and `/api/runtime-events` remain temporarily and are labeled clearly.
+Primary APIs are `POST /api/actions/authorize`, diagnostic-only `POST /api/permits/verify`, Permit revoke/list/detail, `GET /api/decisions`, and `GET /api/audits`. The MCP adapter uses the verifier's single proof-bearing `VerifyExecutionAndConsume` execution boundary. The diagnostic HTTP check never consumes a Permit, reports a valid check as `VALID_NOT_CONSUMED` with `verified=false`, and cannot authorize execution. Every HTTP authorization endpoint crosses Trusted Intake; it fails closed when unconfigured, and the loopback body intake is explicit development mode only. Legacy `/api/authorize`, `/api/route`, and `/api/runtime-events` remain temporarily and are labeled clearly.
 
 The UI has only `Decisions / Permits / Audit / Demo` as primary navigation. Permit detail shows `permit_id`, `signing_key_id`, state, principal, Agent/workload, tool, capability, resource, operation, action digest, policy version, issued/expires/consumed time, and the latest verification result—never the token, signing key, raw delegated credential, or raw sensitive arguments.
 

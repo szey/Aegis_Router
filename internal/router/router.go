@@ -267,42 +267,25 @@ func (r *Router) evaluateAdvisorySignals(req models.Request) models.AdvisorySign
 	}
 }
 
-// VerifyAndConsume is the only authorization method an executor should trust.
-// A permit identifier alone is never accepted as an execution credential.
-func (r *Router) VerifyAndConsume(permitToken string, action canonicalaction.Action) (models.PermitVerification, error) {
-	return r.verifyAndConsume(permitToken, action, permit.ClassExecution, models.RuntimeSourceGatewayEnforced)
-}
-
 // RegisterWorkloadPublicKey configures an Ed25519 executor key used for MCP
 // proof-of-possession checks. Registration is local and exposes no HTTP API.
 func (r *Router) RegisterWorkloadPublicKey(keyID string, publicKey ed25519.PublicKey) error {
 	return r.permitVerifier.RegisterWorkloadPublicKey(keyID, publicKey)
 }
 
-// VerifyExecutionProof authenticates the workload proof without consuming the
-// execution Permit. Failed proof checks are audited at the gateway boundary.
-func (r *Router) VerifyExecutionProof(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) (models.PermitVerification, error) {
-	result := r.permitVerifier.VerifyExecutionProof(permitToken, proofToken, action, httpMethod, httpPath)
+// VerifyExecutionAndConsume is the sole real-execution consumption entry. It
+// performs Permit, workload-proof, action, freshness and replay checks before
+// atomically consuming the execution Permit.
+func (r *Router) VerifyExecutionAndConsume(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) (models.PermitVerification, error) {
+	result := r.permitVerifier.VerifyExecutionAndConsume(permitToken, proofToken, action, httpMethod, httpPath)
 	verification := permitVerification(result, models.RuntimeSourceGatewayEnforced)
-	if result.Allowed() {
-		return verification, nil
-	}
 	return r.auditPermitVerification(result, models.RuntimeSourceGatewayEnforced, verification)
 }
 
 func (r *Router) VerifySyntheticDemo(permitToken string, action canonicalaction.Action) (models.PermitVerification, error) {
-	return r.verifyAndConsume(permitToken, action, permit.ClassSimulation, models.RuntimeSourceSimulatedDemo)
-}
-
-func (r *Router) verifyAndConsume(permitToken string, action canonicalaction.Action, expectedClass permit.Class, source models.RuntimeEventSource) (models.PermitVerification, error) {
-	var result verifier.Result
-	if expectedClass == permit.ClassSimulation {
-		result = r.permitVerifier.VerifySimulationAndConsume(permitToken, action)
-	} else {
-		result = r.permitVerifier.VerifyAndConsume(permitToken, action)
-	}
-	verification := permitVerification(result, source)
-	return r.auditPermitVerification(result, source, verification)
+	result := r.permitVerifier.VerifySimulationAndConsume(permitToken, action)
+	verification := permitVerification(result, models.RuntimeSourceSimulatedDemo)
+	return r.auditPermitVerification(result, models.RuntimeSourceSimulatedDemo, verification)
 }
 
 func permitVerification(result verifier.Result, source models.RuntimeEventSource) models.PermitVerification {
@@ -402,7 +385,10 @@ func verificationOutcomePriority(outcome string) int {
 	return 2
 }
 
-func (r *Router) VerifyRequestAndConsume(permitToken string, req models.Request) (models.PermitVerification, error) {
+// CheckExecutionRequest performs a non-authoritative, non-consuming Permit and
+// action check for diagnostics. Even a valid result is VALID_NOT_CONSUMED and
+// cannot authorize execution.
+func (r *Router) CheckExecutionRequest(permitToken string, req models.Request) (models.PermitVerification, error) {
 	if strings.TrimSpace(permitToken) == "" {
 		return models.PermitVerification{}, fmt.Errorf("permit_token is required")
 	}
@@ -413,7 +399,8 @@ func (r *Router) VerifyRequestAndConsume(permitToken string, req models.Request)
 	if err != nil {
 		return models.PermitVerification{}, err
 	}
-	return r.VerifyAndConsume(permitToken, action)
+	result := r.permitVerifier.CheckExecution(permitToken, action)
+	return permitVerification(result, models.RuntimeEventSource("permit_check_only")), nil
 }
 
 func (r *Router) VerifySyntheticDemoRequest(permitToken string, req models.Request) (models.PermitVerification, error) {
@@ -596,7 +583,7 @@ func (r *Router) CompleteExecution(completion models.ExecutionCompletion) (model
 }
 
 // CompleteVerifiedExecution is called only by an in-process enforcement
-// adapter after VerifyAndConsume and an upstream execution attempt.
+// adapter after VerifyExecutionAndConsume and an upstream execution attempt.
 func (r *Router) CompleteVerifiedExecution(completion models.ExecutionCompletion) (models.AuditRecord, error) {
 	return r.completeExecution(completion, models.RuntimeSourceGatewayEnforced)
 }

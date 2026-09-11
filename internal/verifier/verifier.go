@@ -1,6 +1,6 @@
 // Package verifier is the pre-execution reference monitor. Executors must call
-// VerifyAndConsume immediately before a real side effect and proceed only when
-// the returned outcome is VERIFIED.
+// VerifyExecutionAndConsume immediately before a real side effect and proceed
+// only when the returned outcome is VERIFIED.
 package verifier
 
 import (
@@ -42,6 +42,7 @@ const (
 	OutcomeNotYetValid      Outcome = "NOT_YET_VALID"
 	OutcomeWrongPermitClass Outcome = "WRONG_PERMIT_CLASS"
 	OutcomeWrongExecutor    Outcome = "WRONG_EXECUTOR"
+	OutcomeValidNotConsumed Outcome = "VALID_NOT_CONSUMED"
 )
 
 const (
@@ -118,10 +119,19 @@ func (v *Verifier) RegisterWorkloadPublicKey(keyID string, publicKey ed25519.Pub
 	return v.workloadKeys.Register(keyID, publicKey)
 }
 
-// VerifyExecutionProof authenticates workload possession without consuming
-// the execution Permit. Callers may invoke VerifyAndConsume only after this
-// method returns VERIFIED.
-func (v *Verifier) VerifyExecutionProof(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) Result {
+// VerifyExecutionAndConsume is the sole execution-Permit consumption entry.
+// It validates the Permit, workload proof, action binding, freshness and proof
+// nonce before atomically consuming the Permit. No public proof-free execution
+// consumption method is provided.
+func (v *Verifier) VerifyExecutionAndConsume(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) Result {
+	result := v.verifyExecutionProof(permitToken, proofToken, action, httpMethod, httpPath)
+	if result.Outcome != OutcomeVerified {
+		return result
+	}
+	return v.consumeInspected(result)
+}
+
+func (v *Verifier) verifyExecutionProof(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) Result {
 	result := v.inspectPermit(permitToken, permit.ClassExecution)
 	if result.Outcome != OutcomeVerified {
 		return result
@@ -176,6 +186,24 @@ func (v *Verifier) VerifyExecutionProof(permitToken, proofToken string, action c
 	return result
 }
 
+// CheckExecution validates an execution Permit and its action binding without
+// validating workload possession or consuming the Permit. A successful check
+// deliberately returns VALID_NOT_CONSUMED with Allowed() == false so it cannot
+// be mistaken for execution authorization.
+func (v *Verifier) CheckExecution(permitToken string, action canonicalaction.Action) Result {
+	result := v.inspectPermit(permitToken, permit.ClassExecution)
+	if result.Outcome != OutcomeVerified {
+		return result
+	}
+	if outcome := actionBindingOutcome(action, *result.Claims); outcome != OutcomeVerified {
+		result.Outcome = outcome
+		return result
+	}
+	result.Outcome = OutcomeValidNotConsumed
+	result.Verified = false
+	return result
+}
+
 func actionBindingOutcome(action canonicalaction.Action, claims permit.Claims) Outcome {
 	if err := action.Validate(); err != nil {
 		return OutcomeInvalidAction
@@ -220,32 +248,25 @@ func actionBindingOutcome(action canonicalaction.Action, claims permit.Claims) O
 	return OutcomeVerified
 }
 
-// VerifyAndConsume authenticates the credential, verifies every action
-// binding, and atomically consumes the permit. Binding failures do not consume
-// an otherwise active permit. A second valid use returns REPLAYED.
-func (v *Verifier) VerifyAndConsume(permitToken string, action canonicalaction.Action) Result {
-	return v.verifyAndConsume(permitToken, action, permit.ClassExecution)
-}
-
 // VerifySimulationAndConsume is the isolated verification path for
 // server-owned demos. Its result must never authorize a real upstream call.
 func (v *Verifier) VerifySimulationAndConsume(permitToken string, action canonicalaction.Action) Result {
-	return v.verifyAndConsume(permitToken, action, permit.ClassSimulation)
-}
-
-func (v *Verifier) verifyAndConsume(permitToken string, action canonicalaction.Action, expectedClass permit.Class) Result {
-	result := v.inspectPermit(permitToken, expectedClass)
+	result := v.inspectPermit(permitToken, permit.ClassSimulation)
 	if result.Outcome != OutcomeVerified {
 		return result
 	}
-	now := result.VerifiedAt
 	claims := *result.Claims
-
 	if outcome := actionBindingOutcome(action, claims); outcome != OutcomeVerified {
 		result.Outcome = outcome
 		return result
 	}
+	return v.consumeInspected(result)
+}
 
+func (v *Verifier) consumeInspected(result Result) Result {
+	now := result.VerifiedAt
+	claims := *result.Claims
+	result.Verified = false
 	// Re-read the clock at the actual consume boundary: canonicalization and
 	// signature checks must not let a permit slip past its expiry.
 	consumeTime := v.clock().UTC()

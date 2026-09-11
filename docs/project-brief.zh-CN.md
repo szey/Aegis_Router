@@ -139,7 +139,7 @@ RuntimeEvent 与来源/信任模型继续保留，但属于执行中/执行后�
 
 ## API 与 UI
 
-主 API 是 `POST /api/actions/authorize`、`POST /api/permits/verify`、Permit revoke/list/detail、`GET /api/decisions` 与 `GET /api/audits`。Verifier 作为可信执行边界库被 MCP Adapter 复用。所有 HTTP 授权入口都经过 Trusted Intake；未配置时 fail closed，loopback body intake 只用于显式开发模式。公开 verify 入口只适合受控集成，不提供网络身份认证。旧 `/api/authorize`、`/api/route`、`/api/runtime-events` 暂时兼容并清楚标注。
+主 API 是 `POST /api/actions/authorize`、仅诊断的 `POST /api/permits/verify`、Permit revoke/list/detail、`GET /api/decisions` 与 `GET /api/audits`。MCP Adapter 使用 verifier 唯一的、带 Proof 的 `VerifyExecutionAndConsume` 执行边界。公开 HTTP 检查永不消费 Permit，合法检查返回 `VALID_NOT_CONSUMED` 且 `verified=false`，不能授权执行。所有 HTTP 授权入口都经过 Trusted Intake；未配置时 fail closed，loopback body intake 只用于显式开发模式。旧 `/api/authorize`、`/api/route`、`/api/runtime-events` 暂时兼容并清楚标注。
 
 UI 只保留 `Decisions / Permits / Audit / Demo` 主导航。Permit 详情显示 `permit_id`、`signing_key_id`、state、principal、Agent/workload、tool、capability、resource、operation、action digest、policy version、issued/expires/consumed time 与最近验证结果，永不显示 token、签名密钥、raw delegated credential 或原始敏感参数。
 

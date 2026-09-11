@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"agent-governance-gateway/internal/canonicalaction"
+	"agent-governance-gateway/internal/executionproof"
 	"agent-governance-gateway/internal/keyprovider"
 	"agent-governance-gateway/internal/permit"
 	"agent-governance-gateway/internal/verifier"
@@ -19,13 +21,37 @@ import (
 
 func TestValidPermitVerifiesAndIsConsumed(t *testing.T) {
 	fixture := newFixture(t, time.Minute)
-	result := fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action)
+	result := verifyExecution(t, fixture, fixture.verifier, fixture.action)
 	if result.Outcome != verifier.OutcomeVerified || !result.Allowed() || result.State != permit.StateConsumed {
-		t.Fatalf("VerifyAndConsume = %#v", result)
+		t.Fatalf("VerifyExecutionAndConsume = %#v", result)
 	}
 	if result.PermitID != fixture.issued.PermitID || result.Claims == nil || result.Claims.ActionDigest == "" {
 		t.Fatalf("safe result metadata missing: %#v", result)
 	}
+}
+
+func TestCheckExecutionCannotConsumeOrAuthorizeWithoutProof(t *testing.T) {
+	fixture := newFixture(t, time.Minute)
+	for range 2 {
+		result := fixture.verifier.CheckExecution(fixture.issued.Token(), fixture.action)
+		assertOutcome(t, result, verifier.OutcomeValidNotConsumed)
+		if result.Verified || result.State != permit.StateIssued {
+			t.Fatalf("non-consuming check looked executable: %#v", result)
+		}
+		assertIssued(t, fixture)
+	}
+	result := verifyExecution(t, fixture, fixture.verifier, fixture.action)
+	assertOutcome(t, result, verifier.OutcomeVerified)
+}
+
+func TestExecutionEntryRequiresProofBeforeConsumption(t *testing.T) {
+	fixture := newFixture(t, time.Minute)
+	missing := fixture.verifier.VerifyExecutionAndConsume(fixture.issued.Token(), "", fixture.action, "POST", "/mcp")
+	assertOutcome(t, missing, verifier.OutcomeWrongExecutor)
+	assertIssued(t, fixture)
+
+	accepted := verifyExecution(t, fixture, fixture.verifier, fixture.action)
+	assertOutcome(t, accepted, verifier.OutcomeVerified)
 }
 
 func TestInvalidSignatureIsRejected(t *testing.T) {
@@ -38,7 +64,7 @@ func TestInvalidSignatureIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := fixture.verifier.VerifyAndConsume(forgedToken, fixture.action)
+	result := fixture.verifier.VerifyExecutionAndConsume(forgedToken, "", fixture.action, "POST", "/mcp")
 	assertOutcome(t, result, verifier.OutcomeInvalidSignature)
 	assertIssued(t, fixture)
 }
@@ -46,7 +72,7 @@ func TestInvalidSignatureIsRejected(t *testing.T) {
 func TestPermitClassBoundariesRejectWithoutConsumption(t *testing.T) {
 	t.Run("simulation cannot execute", func(t *testing.T) {
 		fixture := newFixtureWithClass(t, time.Minute, permit.ClassSimulation)
-		assertOutcome(t, fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action), verifier.OutcomeWrongPermitClass)
+		assertOutcome(t, fixture.verifier.VerifyExecutionAndConsume(fixture.issued.Token(), "", fixture.action, "POST", "/mcp"), verifier.OutcomeWrongPermitClass)
 		assertIssued(t, fixture)
 		assertOutcome(t, fixture.verifier.VerifySimulationAndConsume(fixture.issued.Token(), fixture.action), verifier.OutcomeVerified)
 	})
@@ -55,7 +81,7 @@ func TestPermitClassBoundariesRejectWithoutConsumption(t *testing.T) {
 		fixture := newFixture(t, time.Minute)
 		assertOutcome(t, fixture.verifier.VerifySimulationAndConsume(fixture.issued.Token(), fixture.action), verifier.OutcomeWrongPermitClass)
 		assertIssued(t, fixture)
-		assertOutcome(t, fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action), verifier.OutcomeVerified)
+		assertOutcome(t, verifyExecution(t, fixture, fixture.verifier, fixture.action), verifier.OutcomeVerified)
 	})
 }
 
@@ -64,7 +90,7 @@ func TestPermitClassTamperingAndInvalidValuesAreRejected(t *testing.T) {
 		fixture := newFixture(t, time.Minute)
 		value := string(permit.ClassSimulation)
 		token := rewritePermitClass(t, fixture.issued.Token(), fixture.privateKey, &value, false)
-		assertOutcome(t, fixture.verifier.VerifyAndConsume(token, fixture.action), verifier.OutcomeInvalidSignature)
+		assertOutcome(t, fixture.verifier.VerifyExecutionAndConsume(token, "", fixture.action, "POST", "/mcp"), verifier.OutcomeInvalidSignature)
 		assertIssued(t, fixture)
 	})
 
@@ -78,7 +104,7 @@ func TestPermitClassTamperingAndInvalidValuesAreRejected(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFixture(t, time.Minute)
 			token := rewritePermitClass(t, fixture.issued.Token(), fixture.privateKey, test.value, true)
-			assertOutcome(t, fixture.verifier.VerifyAndConsume(token, fixture.action), verifier.OutcomeInvalidPermit)
+			assertOutcome(t, fixture.verifier.VerifyExecutionAndConsume(token, "", fixture.action, "POST", "/mcp"), verifier.OutcomeInvalidPermit)
 			assertIssued(t, fixture)
 		})
 	}
@@ -87,7 +113,7 @@ func TestPermitClassTamperingAndInvalidValuesAreRejected(t *testing.T) {
 func TestExpiredPermitIsRejected(t *testing.T) {
 	fixture := newFixture(t, 5*time.Second)
 	fixture.now = fixture.issued.Claims.ExpiresTime()
-	result := fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action)
+	result := verifyExecution(t, fixture, fixture.verifier, fixture.action)
 	assertOutcome(t, result, verifier.OutcomeExpired)
 }
 
@@ -103,7 +129,10 @@ func TestPermitThatExpiresDuringVerificationIsRejectedAtConsumeBoundary(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := boundaryVerifier.VerifyAndConsume(fixture.issued.Token(), fixture.action)
+	if err := boundaryVerifier.RegisterWorkloadPublicKey(fixture.workloadKeyID, fixture.workloadPrivateKey.Public().(ed25519.PublicKey)); err != nil {
+		t.Fatal(err)
+	}
+	result := verifyExecution(t, fixture, boundaryVerifier, fixture.action)
 	assertOutcome(t, result, verifier.OutcomeExpired)
 }
 
@@ -134,7 +163,7 @@ func TestWrongActionBindingsAreRejectedWithoutConsumption(t *testing.T) {
 			fixture := newFixture(t, time.Minute)
 			action := fixture.action
 			test.mutate(&action)
-			result := fixture.verifier.VerifyAndConsume(fixture.issued.Token(), action)
+			result := verifyExecution(t, fixture, fixture.verifier, action)
 			assertOutcome(t, result, test.outcome)
 			assertIssued(t, fixture)
 		})
@@ -143,8 +172,8 @@ func TestWrongActionBindingsAreRejectedWithoutConsumption(t *testing.T) {
 
 func TestPermitReplayIsRejected(t *testing.T) {
 	fixture := newFixture(t, time.Minute)
-	first := fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action)
-	second := fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action)
+	first := verifyExecution(t, fixture, fixture.verifier, fixture.action)
+	second := verifyExecution(t, fixture, fixture.verifier, fixture.action)
 	assertOutcome(t, first, verifier.OutcomeVerified)
 	assertOutcome(t, second, verifier.OutcomeReplayed)
 }
@@ -156,11 +185,16 @@ func TestConcurrentReplayExactlyOneSucceeds(t *testing.T) {
 	results := make(chan verifier.Result, attempts)
 	var ready sync.WaitGroup
 	ready.Add(attempts)
-	for range attempts {
+	proofs := make([]string, attempts)
+	for index := range attempts {
+		proofs[index] = executionProof(t, fixture)
+	}
+	for index := range attempts {
+		proof := proofs[index]
 		go func() {
 			ready.Done()
 			<-start
-			results <- fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action)
+			results <- fixture.verifier.VerifyExecutionAndConsume(fixture.issued.Token(), proof, fixture.action, "POST", "/mcp")
 		}()
 	}
 	ready.Wait()
@@ -188,7 +222,7 @@ func TestRevokedPermitIsRejected(t *testing.T) {
 	if _, err := fixture.store.Revoke(fixture.issued.PermitID, fixture.now); err != nil {
 		t.Fatal(err)
 	}
-	result := fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action)
+	result := verifyExecution(t, fixture, fixture.verifier, fixture.action)
 	assertOutcome(t, result, verifier.OutcomeRevoked)
 }
 
@@ -200,7 +234,7 @@ func TestIssuerAndStoreBindingsAreRejected(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertOutcome(t, other.VerifyAndConsume(fixture.issued.Token(), fixture.action), verifier.OutcomeInvalidIssuer)
+		assertOutcome(t, other.VerifyExecutionAndConsume(fixture.issued.Token(), "", fixture.action, "POST", "/mcp"), verifier.OutcomeInvalidIssuer)
 	})
 
 	t.Run("unknown permit", func(t *testing.T) {
@@ -209,7 +243,7 @@ func TestIssuerAndStoreBindingsAreRejected(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertOutcome(t, other.VerifyAndConsume(fixture.issued.Token(), fixture.action), verifier.OutcomeUnknownPermit)
+		assertOutcome(t, other.VerifyExecutionAndConsume(fixture.issued.Token(), "", fixture.action, "POST", "/mcp"), verifier.OutcomeUnknownPermit)
 	})
 
 	t.Run("store claim mismatch", func(t *testing.T) {
@@ -223,13 +257,13 @@ func TestIssuerAndStoreBindingsAreRejected(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertOutcome(t, other.VerifyAndConsume(fixture.issued.Token(), fixture.action), verifier.OutcomeInvalidPermit)
+		assertOutcome(t, other.VerifyExecutionAndConsume(fixture.issued.Token(), "", fixture.action, "POST", "/mcp"), verifier.OutcomeInvalidPermit)
 	})
 }
 
 func TestVerificationResultNeverLeaksTokenOrRawArguments(t *testing.T) {
 	fixture := newFixture(t, time.Minute)
-	result := fixture.verifier.VerifyAndConsume(fixture.issued.Token(), fixture.action)
+	result := verifyExecution(t, fixture, fixture.verifier, fixture.action)
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -242,13 +276,16 @@ func TestVerificationResultNeverLeaksTokenOrRawArguments(t *testing.T) {
 }
 
 type fixture struct {
-	now         time.Time
-	privateKey  ed25519.PrivateKey
-	keyProvider *keyprovider.Static
-	store       *permit.MemoryStore
-	issued      permit.IssuedPermit
-	action      canonicalaction.Action
-	verifier    *verifier.Verifier
+	now                time.Time
+	privateKey         ed25519.PrivateKey
+	workloadPrivateKey ed25519.PrivateKey
+	workloadKeyID      string
+	proofNonce         atomic.Uint64
+	keyProvider        *keyprovider.Static
+	store              *permit.MemoryStore
+	issued             permit.IssuedPermit
+	action             canonicalaction.Action
+	verifier           *verifier.Verifier
 }
 
 func newFixture(t *testing.T, ttl time.Duration) *fixture {
@@ -282,11 +319,18 @@ func newFixtureWithClass(t *testing.T, ttl time.Duration, permitClass permit.Cla
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, workloadPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	executorThumbprint := ""
 	executorKeyID := ""
 	if permitClass == permit.ClassExecution {
 		executorKeyID = "workload-key-01"
-		executorThumbprint = "sha256:" + strings.Repeat("e", 64)
+		executorThumbprint, err = executionproof.Thumbprint(workloadPrivateKey.Public().(ed25519.PublicKey))
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	issued, err := issuer.Issue(permit.IssueRequest{
 		PermitID: "p_fixture", PermitClass: permitClass, RequestID: "request-01", PrincipalID: action.PrincipalID,
@@ -302,13 +346,39 @@ func newFixtureWithClass(t *testing.T, ttl time.Duration, permitClass permit.Cla
 		t.Fatal(err)
 	}
 	_ = publicKey
-	fixture := &fixture{now: now, privateKey: privateKey, keyProvider: keyProvider, store: store, issued: issued, action: action}
+	fixture := &fixture{
+		now: now, privateKey: privateKey, workloadPrivateKey: workloadPrivateKey, workloadKeyID: executorKeyID,
+		keyProvider: keyProvider, store: store, issued: issued, action: action,
+	}
 	result, err := verifier.New(keyProvider, "aegis-router", store, verifier.WithClock(func() time.Time { return fixture.now }))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if permitClass == permit.ClassExecution {
+		if err := result.RegisterWorkloadPublicKey(executorKeyID, workloadPrivateKey.Public().(ed25519.PublicKey)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	fixture.verifier = result
 	return fixture
+}
+
+func executionProof(t *testing.T, fixture *fixture) string {
+	t.Helper()
+	proof, err := executionproof.Sign(fixture.workloadPrivateKey, fixture.workloadKeyID, executionproof.Claims{
+		PermitID: fixture.issued.PermitID, ActionDigest: fixture.issued.Claims.ActionDigest,
+		HTTPMethod: "POST", HTTPPath: "/mcp", IssuedAt: fixture.now.Unix(),
+		Nonce: fmt.Sprintf("proof-%d", fixture.proofNonce.Add(1)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proof
+}
+
+func verifyExecution(t *testing.T, fixture *fixture, target *verifier.Verifier, action canonicalaction.Action) verifier.Result {
+	t.Helper()
+	return target.VerifyExecutionAndConsume(fixture.issued.Token(), executionProof(t, fixture), action, "POST", "/mcp")
 }
 
 func rewritePermitClass(t *testing.T, token string, privateKey ed25519.PrivateKey, permitClass *string, resign bool) string {

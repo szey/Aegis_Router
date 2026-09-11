@@ -270,7 +270,7 @@ func (s *Server) verifyPermit(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_verification_request", err.Error())
 		return
 	}
-	result, err := s.router.VerifyRequestAndConsume(input.PermitToken, input.Action)
+	result, err := s.router.CheckExecutionRequest(input.PermitToken, input.Action)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "permit_verification_failed", err.Error())
 		return

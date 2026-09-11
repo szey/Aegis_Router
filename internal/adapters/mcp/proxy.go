@@ -41,8 +41,7 @@ const (
 )
 
 type Gate interface {
-	VerifyExecutionProof(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) (models.PermitVerification, error)
-	VerifyAndConsume(permitToken string, action canonicalaction.Action) (models.PermitVerification, error)
+	VerifyExecutionAndConsume(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) (models.PermitVerification, error)
 	IngestRuntimeEvent(event models.RuntimeEvent) (models.RuntimeEventEvaluation, error)
 	CompleteVerifiedExecution(completion models.ExecutionCompletion) (models.AuditRecord, error)
 }
@@ -202,27 +201,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if proofValues := req.Header.Values(HeaderExecutionProof); len(proofValues) == 1 {
 		proofToken = proofValues[0]
 	}
-	proofVerification, err := p.gate.VerifyExecutionProof(token, proofToken, action, req.Method, req.URL.Path)
+	// This single call is the commit point: it validates every Permit, proof,
+	// action and replay binding, then atomically consumes before any upstream
+	// side effect. Upstream failure or timeout never restores the Permit.
+	verification, err := p.gate.VerifyExecutionAndConsume(token, proofToken, action, req.Method, req.URL.Path)
 	if err != nil {
-		writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not record execution proof verification", nil)
-		return
-	}
-	if !proofVerification.Verified || proofVerification.Outcome != "VERIFIED" {
-		writeRPCError(w, http.StatusForbidden, rpc.ID, -32006, "Aegis workload execution proof rejected", map[string]string{
-			"verification_result": proofVerification.Outcome, "permit_id": proofVerification.PermitID,
-		})
-		return
-	}
-	// Consumption is the commit point and happens before the upstream side
-	// effect. Upstream failure or timeout never restores this permit; a retry
-	// must obtain a newly authorized permit.
-	verification, err := p.gate.VerifyAndConsume(token, action)
-	if err != nil {
-		writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not record permit verification", nil)
+		writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not record execution verification", nil)
 		return
 	}
 	if !verification.Verified || verification.Outcome != "VERIFIED" {
-		writeRPCError(w, http.StatusForbidden, rpc.ID, -32003, "Aegis execution permit rejected", map[string]string{
+		writeRPCError(w, http.StatusForbidden, rpc.ID, -32006, "Aegis execution authorization rejected", map[string]string{
 			"verification_result": verification.Outcome, "permit_id": verification.PermitID,
 		})
 		return

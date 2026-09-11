@@ -86,7 +86,7 @@ func TestSafeRequestAllowsAndIssuesLeastPrivilegePermit(t *testing.T) {
 	}
 }
 
-func TestSignedPermitCredentialStaysOutsideAuditAndIsSingleUse(t *testing.T) {
+func TestSignedPermitCredentialStaysOutsideAuditAndChecksNeverConsume(t *testing.T) {
 	r, store, _ := testRouter(t)
 	req := paymentSemanticRequest(`{"amount_minor":100,"currency":"USD","recipient":"merchant-456"}`)
 	result, err := authorizeAction(t, r, req)
@@ -110,13 +110,15 @@ func TestSignedPermitCredentialStaysOutsideAuditAndIsSingleUse(t *testing.T) {
 	if bytes.Contains(encoded, []byte("merchant-456")) {
 		t.Fatal("raw action arguments leaked into audit")
 	}
-	first, err := r.VerifyRequestAndConsume(result.Permit.PermitToken, req)
-	if err != nil || !first.Verified || first.Outcome != "VERIFIED" {
-		t.Fatalf("first verification = %#v, err = %v", first, err)
+	for range 2 {
+		checked, err := r.CheckExecutionRequest(result.Permit.PermitToken, req)
+		if err != nil || checked.Verified || checked.Outcome != "VALID_NOT_CONSUMED" || checked.State != "ISSUED" {
+			t.Fatalf("non-consuming check = %#v, err = %v", checked, err)
+		}
 	}
-	second, err := r.VerifyRequestAndConsume(result.Permit.PermitToken, req)
-	if err != nil || second.Verified || second.Outcome != "REPLAYED" {
-		t.Fatalf("second verification = %#v, err = %v", second, err)
+	permitRecord, ok := r.GetPermit(result.Permit.PermitID)
+	if !ok || permitRecord.State != permit.StateIssued {
+		t.Fatalf("checks consumed Permit: %#v, exists=%v", permitRecord, ok)
 	}
 }
 
@@ -130,7 +132,7 @@ func TestRevokedSignedPermitIsRejected(t *testing.T) {
 	if _, err := r.RevokePermit(result.Permit.PermitID); err != nil {
 		t.Fatal(err)
 	}
-	verification, err := r.VerifyRequestAndConsume(result.Permit.PermitToken, req)
+	verification, err := r.CheckExecutionRequest(result.Permit.PermitToken, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -654,7 +656,7 @@ func TestSyntheticDemoPermitCannotReachExecutionVerifier(t *testing.T) {
 		t.Fatal("synthetic demo authorization did not issue a permit")
 	}
 
-	verification, err := r.VerifyRequestAndConsume(authorized.Permit.PermitToken, request)
+	verification, err := r.CheckExecutionRequest(authorized.Permit.PermitToken, request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -685,9 +687,9 @@ func TestPaymentSendV1SemanticPolicyControlsPermitIssuance(t *testing.T) {
 		if authorized.Permit == nil || authorized.Permit.ProfileID != "payment.send/v1" || authorized.Permit.Audience != "mcp://local-payment-sandbox" {
 			t.Fatalf("payment permit missing server bindings: %#v", authorized)
 		}
-		verification, err := r.VerifyRequestAndConsume(authorized.Permit.PermitToken, request)
-		if err != nil || !verification.Verified {
-			t.Fatalf("valid normalized payment did not verify: result=%#v err=%v", verification, err)
+		verification, err := r.CheckExecutionRequest(authorized.Permit.PermitToken, request)
+		if err != nil || verification.Verified || verification.Outcome != "VALID_NOT_CONSUMED" {
+			t.Fatalf("valid normalized payment did not pass a non-consuming check: result=%#v err=%v", verification, err)
 		}
 	})
 
@@ -761,9 +763,9 @@ func TestWorkspaceWriteV1UsesTheSharedExecutionPermitCore(t *testing.T) {
 		if authorized.Permit == nil || authorized.Permit.ProfileID != "workspace.write/v1" || authorized.Permit.Audience != "mcp://local-workspace-sandbox" {
 			t.Fatalf("workspace Permit missing server bindings: %#v", authorized)
 		}
-		verification, err := r.VerifyRequestAndConsume(authorized.Permit.PermitToken, workspaceSemanticRequest(`{"path":"reports/result.txt","content":"hello"}`))
-		if err != nil || !verification.Verified || verification.Outcome != "VERIFIED" {
-			t.Fatalf("workspace verification=%#v err=%v", verification, err)
+		verification, err := r.CheckExecutionRequest(authorized.Permit.PermitToken, workspaceSemanticRequest(`{"path":"reports/result.txt","content":"hello"}`))
+		if err != nil || verification.Verified || verification.Outcome != "VALID_NOT_CONSUMED" {
+			t.Fatalf("workspace check=%#v err=%v", verification, err)
 		}
 		persisted, _ := json.Marshal(store.Recent(10))
 		if bytes.Contains(persisted, []byte("hello")) {

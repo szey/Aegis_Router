@@ -26,7 +26,7 @@ TrustedProxy 只根据 `request.RemoteAddr` 建立发送方信任，永远不使
 
 成功的 Proxy intake 会在 `authorization_context_provenance` 中记录 `source=trusted_integration`、配置的 `provider_id`、`assurance=authenticated_context` 和服务端 `established_at`；失败时永不降级使用 body 身份。`Router` 仍然没有接受裸 `models.Request` 的普通 Permit 签发入口，只消费 sealed `intake.Authorization`。Aegis 自身既不认证用户，也不验证 OAuth Token；它只消费另一个可信认证边界已经建立的身份。这不是完整 IAM、SSO、OAuth 或 RBAC 系统。同一进程或网络本身不等于身份认证；认证代理的安全运行、传输保护与网络拓扑约束仍由部署方负责。
 
-每个 execution Permit 都会签名绑定 executor key ID 和 Ed25519 公钥的 SHA-256 thumbprint。MCP `tools/call` 还必须携带 `X-Aegis-Execution-Proof`：对 Permit ID、action digest、`POST /mcp`、签发时间和 nonce 的新鲜 Ed25519 紧凑签名。Aegis 只从本地注册 key 集合解析 Proof `kid`，校验公钥 thumbprint，拒绝过期 Proof 和重复 nonce，并在消费 Permit 或调用 upstream 之前完成全部检查。Proof 不会转发或写入审计。有效 Permit 被错 workload 提交时返回 `WRONG_EXECUTOR`，与格式错误/签名无效的 Permit 结果明确区分。
+每个 execution Permit 都会签名绑定 executor key ID 和 Ed25519 公钥的 SHA-256 thumbprint。MCP `tools/call` 还必须携带 `X-Aegis-Execution-Proof`：对 Permit ID、action digest、`POST /mcp`、签发时间和 nonce 的新鲜 Ed25519 紧凑签名。Aegis 只从本地注册 key 集合解析 Proof `kid`，校验公钥 thumbprint，拒绝过期 Proof 和重复 nonce，并在消费 Permit 或调用 upstream 之前完成全部检查。Permit/Proof 检查与原子消费只通过统一的 `VerifyExecutionAndConsume` 暴露，不再存在公开的无 Proof execution 消费方法。Proof 不会转发或写入审计。有效 Permit 被错 workload 提交时返回 `WRONG_EXECUTOR`，与格式错误/签名无效的 Permit 结果明确区分。保留旧名称的 `POST /api/permits/verify` 仅作诊断检查：不消费 Permit；合法 Permit/action 只返回 `VALID_NOT_CONSUMED` 且 `verified=false`。
 
 该 Proof 只证明某个请求持有已注册私钥，不是硬件 attestation 或软件完整性测量。私钥被窃取、复制或共用会破坏该绑定。Nonce store 和注册 key 集合都是单进程内的；本里程不实现跨重启/多副本防重放。缺失 executor key claims 的旧 execution Permit 必须重新签发；simulation Permit 保持不绑 workload key，且仍不能进入 MCP 执行。
 

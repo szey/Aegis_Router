@@ -78,7 +78,7 @@ TTL 必须是整秒，默认 30 秒，当前最大 15 分钟。
 
 ### Verification 与 replay defense
 
-执行边界验证签名、签发方、有效期、`permit_class`、主体/Agent/workload、工具、资源、操作、profile 版本、audience 和动作摘要，并原子消费许可。每个 `execution` Permit 还必须包含受签名保护的 `executor_key_id` 和 `executor_key_thumbprint`（`sha256:<64 位小写十六进制>`）；`simulation` Permit 不包含两者。正常 `VerifyAndConsume` 与 MCP 只接受 `execution`；Server-owned Demo verifier 只接受 `simulation`。只有返回 `VERIFIED` 的 execution Permit 可以调用 upstream。失败结果包括无效签名/用途、过期、撤销、`WRONG_EXECUTOR`、动作不匹配和重放。
+执行边界通过唯一的 `VerifyExecutionAndConsume` 入口验证签名、签发方、有效期、`permit_class`、主体/Agent/workload、工具、资源、操作、profile 版本、audience、动作摘要和 workload Proof，然后原子消费 Permit。每个 `execution` Permit 还必须包含受签名保护的 `executor_key_id` 和 `executor_key_thumbprint`（`sha256:<64 位小写十六进制>`）；`simulation` Permit 不包含两者。系统不再公开无 Proof 的 execution 消费方法；Server-owned Demo verifier 保持隔离且只接受 `simulation`。只有执行边界返回 `VERIFIED` 才能调用 upstream。失败结果包括无效签名/用途、过期、撤销、`WRONG_EXECUTOR`、动作不匹配和重放。
 
 `permit_class` 由服务端入口决定并受签名保护，请求调用方不能指定或覆盖。缺失 executor key claims 的旧 execution Token 也视为无效，必须重新授权、重新签发；系统不会把缺失用途或 workload key 绑定的 Token 默认解释为可执行。
 
@@ -216,12 +216,12 @@ Legacy flat request 兼容格式**没有 Execution Permit 资格**。即使 inta
 聚焦 API：
 
 - `POST /api/actions/authorize` — 授权规范动作；成功时返回 decision 和含 `permit_id`、`permit_token`、`expires_at` 的 permit 对象；
-- `POST /api/permits/verify` — 在可信执行边界验证并原子消费 Permit；
+- `POST /api/permits/verify` — 不带 workload Proof、也不消费 Permit 的一致性检查；合法结果为 `VALID_NOT_CONSUMED` 且 `verified=false`；
 - `POST /api/permits/{id}/revoke` — 撤销未消费 Permit；
 - `GET /api/permits`、`GET /api/permits/{id}` — 只返回安全元数据；
 - `GET /api/decisions`、`GET /api/audits` — 查看授权决定和审计回执。
 
-MCP Adapter 直接复用同一 verifier。所有 HTTP 授权入口先经过 `TrustedAuthorizationIntake`；Router 仍然只接受 sealed `intake.Authorization`，没有接受裸 `models.Request` 的普通 Permit 签发方法。同进程本身不构成身份来源。`POST /api/permits/verify` 适合可信的受控集成，不等同于跨网络身份认证。`/api/authorize`、`/api/runtime-events` 和 `/api/route` 作为兼容入口暂时保留；授权兼容入口同样经过所选 intake。
+MCP Adapter 只调用 verifier 唯一的、带 Proof 的 `VerifyExecutionAndConsume`。所有 HTTP 授权入口先经过 `TrustedAuthorizationIntake`；Router 仍然只接受 sealed `intake.Authorization`，没有接受裸 `models.Request` 的普通 Permit 签发方法。同进程本身不构成身份来源。`POST /api/permits/verify` 仅供诊断：它永不消费 Permit，也永不返回可作为执行许可的 `VERIFIED`。真实 execution 消费只能通过 `/mcp` 使用的带 Proof 执行入口发生。`/api/authorize`、`/api/runtime-events` 和 `/api/route` 作为兼容入口暂时保留；授权兼容入口同样经过所选 intake。
 
 ## UI
 
