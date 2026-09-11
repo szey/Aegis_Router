@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-governance-gateway/internal/executionproof"
 	"agent-governance-gateway/internal/models"
 )
 
@@ -26,15 +27,20 @@ const (
 // Authorization is the sealed output of a TrustedAuthorizationIntake. Its
 // fields cannot be populated directly outside this package.
 type Authorization struct {
-	request    models.Request
-	provenance models.AuthorizationContextProvenance
-	resolved   bool
+	request         models.Request
+	provenance      models.AuthorizationContextProvenance
+	workloadBinding WorkloadBinding
+	resolved        bool
 }
 
 func (authorization Authorization) Request() models.Request { return authorization.request }
 
 func (authorization Authorization) Provenance() models.AuthorizationContextProvenance {
 	return authorization.provenance
+}
+
+func (authorization Authorization) WorkloadBinding() WorkloadBinding {
+	return authorization.workloadBinding
 }
 
 func (authorization Authorization) Valid() bool { return authorization.resolved }
@@ -46,6 +52,9 @@ func NewTrustedAuthorization(proposal models.Request, identity IdentityContext, 
 	providerID = strings.TrimSpace(providerID)
 	if !safeProviderID(providerID) {
 		return Authorization{}, fmt.Errorf("%w: provider id is missing or invalid", ErrTrustedContextRequired)
+	}
+	if err := validateWorkloadBinding(identity.WorkloadBinding); err != nil {
+		return Authorization{}, err
 	}
 	if establishedAt.IsZero() {
 		establishedAt = time.Now().UTC()
@@ -70,6 +79,15 @@ type IdentityContext struct {
 	Principal          models.PrincipalContext
 	Agent              models.AgentIdentity
 	DelegatedAuthority models.DelegatedAuthority
+	WorkloadBinding    WorkloadBinding
+}
+
+// WorkloadBinding is asserted by authenticated infrastructure, separately
+// from the authorization JSON body. The KeyID selects a registered workload
+// public key while PublicKeyThumbprint is signed into execution Permits.
+type WorkloadBinding struct {
+	KeyID               string
+	PublicKeyThumbprint string
 }
 
 type Static struct {
@@ -82,6 +100,9 @@ func NewStatic(identity IdentityContext, providerID string) (*Static, error) {
 	providerID = strings.TrimSpace(providerID)
 	if !safeProviderID(providerID) {
 		return nil, fmt.Errorf("%w: provider id is missing or invalid", ErrTrustedContextRequired)
+	}
+	if err := validateWorkloadBinding(identity.WorkloadBinding); err != nil {
+		return nil, err
 	}
 	return &Static{identity: cloneIdentity(identity), providerID: providerID, clock: time.Now}, nil
 }
@@ -105,16 +126,24 @@ func (RejectAll) Resolve(_ *http.Request, _ models.Request) (Authorization, erro
 // identity from the request body only when the direct peer is loopback and
 // labels the resulting provenance as development-only, never authenticated.
 type LoopbackDevelopment struct {
-	providerID string
-	clock      func() time.Time
+	providerID      string
+	workloadBinding WorkloadBinding
+	clock           func() time.Time
 }
 
-func NewLoopbackDevelopment(providerID string) (*LoopbackDevelopment, error) {
+func NewLoopbackDevelopment(providerID string, workloadBinding ...WorkloadBinding) (*LoopbackDevelopment, error) {
 	providerID = strings.TrimSpace(providerID)
 	if !safeProviderID(providerID) {
 		return nil, fmt.Errorf("%w: provider id is missing or invalid", ErrTrustedContextRequired)
 	}
-	return &LoopbackDevelopment{providerID: providerID, clock: time.Now}, nil
+	if len(workloadBinding) != 1 {
+		return nil, fmt.Errorf("%w: exactly one development workload binding is required", ErrTrustedContextRequired)
+	}
+	binding := workloadBinding[0]
+	if err := validateWorkloadBinding(binding); err != nil {
+		return nil, err
+	}
+	return &LoopbackDevelopment{providerID: providerID, workloadBinding: binding, clock: time.Now}, nil
 }
 
 func (provider *LoopbackDevelopment) Resolve(request *http.Request, proposal models.Request) (Authorization, error) {
@@ -124,6 +153,7 @@ func (provider *LoopbackDevelopment) Resolve(request *http.Request, proposal mod
 	identity := IdentityContext{
 		Principal: proposal.EffectivePrincipal(), Agent: proposal.EffectiveAgent(),
 		DelegatedAuthority: proposal.EffectiveAuthority(),
+		WorkloadBinding:    provider.workloadBinding,
 	}
 	return resolved(proposal, identity, models.AuthorizationContextProvenance{
 		Source: SourceLocalDevelopment, ProviderID: provider.providerID,
@@ -143,7 +173,7 @@ func resolved(proposal models.Request, identity IdentityContext, provenance mode
 		proposal.UserID = identity.Principal.PrincipalID
 		proposal.AgentID = identity.Agent.AgentID
 		proposal.TokenScopes = append([]string(nil), identity.DelegatedAuthority.Scopes...)
-		return Authorization{request: proposal, provenance: provenance, resolved: true}
+		return Authorization{request: proposal, provenance: provenance, workloadBinding: identity.WorkloadBinding, resolved: true}
 	}
 	proposal.Principal = identity.Principal
 	proposal.Agent = identity.Agent
@@ -153,7 +183,7 @@ func resolved(proposal models.Request, identity IdentityContext, provenance mode
 	proposal.UserID = ""
 	proposal.AgentID = ""
 	proposal.TokenScopes = nil
-	return Authorization{request: proposal, provenance: provenance, resolved: true}
+	return Authorization{request: proposal, provenance: provenance, workloadBinding: identity.WorkloadBinding, resolved: true}
 }
 
 func isLoopback(remoteAddress string) bool {
@@ -183,6 +213,16 @@ func cloneIdentity(identity IdentityContext) IdentityContext {
 		clone.DelegatedAuthority.ExpiresAt = &expiresAt
 	}
 	return clone
+}
+
+func validateWorkloadBinding(binding WorkloadBinding) error {
+	if !safeProviderID(binding.KeyID) {
+		return fmt.Errorf("%w: workload key id is missing or invalid", ErrTrustedContextRequired)
+	}
+	if !executionproof.ValidThumbprint(binding.PublicKeyThumbprint) {
+		return fmt.Errorf("%w: workload public key thumbprint must be sha256 followed by 64 lowercase hexadecimal characters", ErrTrustedContextRequired)
+	}
+	return nil
 }
 
 func safeProviderID(value string) bool {

@@ -165,31 +165,33 @@ func (s *Server) authorizeAction(w http.ResponseWriter, req *http.Request) {
 }
 
 type permitView struct {
-	PermitID           string             `json:"permit_id"`
-	SigningKeyID       string             `json:"signing_key_id"`
-	PermitClass        permit.Class       `json:"permit_class"`
-	ProfileID          string             `json:"profile_id,omitempty"`
-	Audience           string             `json:"audience,omitempty"`
-	State              permit.State       `json:"state"`
-	RequestID          string             `json:"request_id"`
-	PrincipalID        string             `json:"principal_id"`
-	AgentID            string             `json:"agent_id"`
-	WorkloadID         string             `json:"workload_id"`
-	Tool               string             `json:"tool"`
-	Capability         string             `json:"capability"`
-	Resource           string             `json:"resource"`
-	Operation          string             `json:"operation"`
-	ActionDigest       string             `json:"action_digest"`
-	PolicyVersion      string             `json:"policy_version"`
-	Issuer             string             `json:"issuer"`
-	SingleUse          bool               `json:"single_use"`
-	Obligations        permit.Obligations `json:"obligations"`
-	IssuedAt           time.Time          `json:"issued_at"`
-	ExpiresAt          time.Time          `json:"expires_at"`
-	ConsumedAt         *time.Time         `json:"consumed_at,omitempty"`
-	ExpiredAt          *time.Time         `json:"expired_at,omitempty"`
-	RevokedAt          *time.Time         `json:"revoked_at,omitempty"`
-	VerificationResult string             `json:"verification_result,omitempty"`
+	PermitID              string             `json:"permit_id"`
+	SigningKeyID          string             `json:"signing_key_id"`
+	PermitClass           permit.Class       `json:"permit_class"`
+	ProfileID             string             `json:"profile_id,omitempty"`
+	Audience              string             `json:"audience,omitempty"`
+	State                 permit.State       `json:"state"`
+	RequestID             string             `json:"request_id"`
+	PrincipalID           string             `json:"principal_id"`
+	AgentID               string             `json:"agent_id"`
+	WorkloadID            string             `json:"workload_id"`
+	ExecutorKeyID         string             `json:"executor_key_id,omitempty"`
+	ExecutorKeyThumbprint string             `json:"executor_key_thumbprint,omitempty"`
+	Tool                  string             `json:"tool"`
+	Capability            string             `json:"capability"`
+	Resource              string             `json:"resource"`
+	Operation             string             `json:"operation"`
+	ActionDigest          string             `json:"action_digest"`
+	PolicyVersion         string             `json:"policy_version"`
+	Issuer                string             `json:"issuer"`
+	SingleUse             bool               `json:"single_use"`
+	Obligations           permit.Obligations `json:"obligations"`
+	IssuedAt              time.Time          `json:"issued_at"`
+	ExpiresAt             time.Time          `json:"expires_at"`
+	ConsumedAt            *time.Time         `json:"consumed_at,omitempty"`
+	ExpiredAt             *time.Time         `json:"expired_at,omitempty"`
+	RevokedAt             *time.Time         `json:"revoked_at,omitempty"`
+	VerificationResult    string             `json:"verification_result,omitempty"`
 }
 
 func viewPermit(record permit.Record) permitView {
@@ -198,6 +200,7 @@ func viewPermit(record permit.Record) permitView {
 		PermitID: claims.PermitID, SigningKeyID: claims.SigningKeyID, PermitClass: claims.PermitClass,
 		ProfileID: claims.ProfileID, Audience: claims.Audience, State: record.State, RequestID: claims.RequestID,
 		PrincipalID: claims.PrincipalID, AgentID: claims.AgentID, WorkloadID: claims.WorkloadID,
+		ExecutorKeyID: claims.ExecutorKeyID, ExecutorKeyThumbprint: claims.ExecutorKeyThumbprint,
 		Tool: claims.Tool, Capability: claims.Capability, Resource: claims.Resource, Operation: claims.Operation,
 		ActionDigest: claims.ActionDigest, PolicyVersion: claims.PolicyVersion, Issuer: claims.Issuer,
 		SingleUse: claims.SingleUse, Obligations: claims.Obligations,

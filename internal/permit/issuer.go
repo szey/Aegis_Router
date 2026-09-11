@@ -22,6 +22,8 @@ type IssueRequest struct {
 	PrincipalID                   string
 	AgentID                       string
 	WorkloadID                    string
+	ExecutorKeyID                 string
+	ExecutorKeyThumbprint         string
 	DelegatedAuthorityFingerprint string
 	Tool                          string
 	Capability                    string
@@ -116,6 +118,8 @@ func (i *Issuer) Issue(request IssueRequest) (IssuedPermit, error) {
 	claims := Claims{
 		PermitID: permitID, SigningKeyID: signingKey.KeyID, PermitClass: request.PermitClass, RequestID: request.RequestID,
 		PrincipalID: request.PrincipalID, AgentID: request.AgentID, WorkloadID: request.WorkloadID,
+		ExecutorKeyID:                 request.ExecutorKeyID,
+		ExecutorKeyThumbprint:         request.ExecutorKeyThumbprint,
 		DelegatedAuthorityFingerprint: request.DelegatedAuthorityFingerprint,
 		Tool:                          request.Tool, Capability: request.Capability, Resource: request.Resource, Operation: request.Operation,
 		ProfileID: request.ProfileID, Audience: request.Audience,

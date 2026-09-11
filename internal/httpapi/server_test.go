@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"agent-governance-gateway/internal/audit"
 	"agent-governance-gateway/internal/config"
 	"agent-governance-gateway/internal/discovery"
+	"agent-governance-gateway/internal/executionproof"
 	"agent-governance-gateway/internal/httpapi"
 	"agent-governance-gateway/internal/intake"
 	"agent-governance-gateway/internal/models"
@@ -25,6 +27,8 @@ import (
 	"agent-governance-gateway/internal/scenario"
 	"agent-governance-gateway/internal/sessionaudit"
 )
+
+const httpTestWorkloadKeyID = "http-test-workload-key"
 
 func TestLegacyRouteCannotReachExecutionPermitBoundary(t *testing.T) {
 	handler := testHandler(t)
@@ -71,6 +75,7 @@ func TestTrustedIntakeOverridesForgedHTTPIdentityAndIsAudited(t *testing.T) {
 		DelegatedAuthority: models.DelegatedAuthority{
 			CredentialFingerprint: strings.Repeat("b", 64), Scopes: []string{"payment.transfer"}, Subject: "user-01",
 		},
+		WorkloadBinding: httpTestWorkloadBinding(t),
 	}
 	trustedIntake, err := intake.NewStatic(identity, "authenticated-test-middleware")
 	if err != nil {
@@ -134,6 +139,9 @@ func TestTrustedProxyAuthorizationExecutesOneNormalizedPaymentThroughMCP(t *test
 		t.Fatal(err)
 	}
 	r := router.New(cfg, store)
+	if err := r.RegisterWorkloadPublicKey(httpTestWorkloadKeyID, httpTestWorkloadPrivateKey().Public().(ed25519.PublicKey)); err != nil {
+		t.Fatal(err)
+	}
 	mcpProxy, err := mcp.New(r, r.SemanticRegistry(), upstream.URL, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -195,6 +203,7 @@ func TestTrustedProxyAuthorizationExecutesOneNormalizedPaymentThroughMCP(t *test
 		t.Fatal(err)
 	}
 	executeRequest.Header.Set("Authorization", "AegisPermit "+authorized.Permit.PermitToken)
+	executeRequest.Header.Set(mcp.HeaderExecutionProof, httpExecutionProof(t, authorized, "payment-proof-01"))
 	executeRequest.Header.Set(mcp.HeaderProtocolVersion, mcp.ProtocolVersion20260728)
 	executeRequest.Header.Set(mcp.HeaderMethod, "tools/call")
 	executeRequest.Header.Set(mcp.HeaderName, "payment.send")
@@ -268,6 +277,9 @@ func TestTrustedProxyAuthorizationExecutesWorkspaceWriteThroughSharedMCPBoundary
 		t.Fatal(err)
 	}
 	r := router.New(cfg, store)
+	if err := r.RegisterWorkloadPublicKey(httpTestWorkloadKeyID, httpTestWorkloadPrivateKey().Public().(ed25519.PublicKey)); err != nil {
+		t.Fatal(err)
+	}
 	mcpProxy, err := mcp.New(r, r.SemanticRegistry(), paymentUpstream.URL, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -318,6 +330,7 @@ func TestTrustedProxyAuthorizationExecutesWorkspaceWriteThroughSharedMCPBoundary
 	mcpBody := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workspace.write","arguments":{"path":"reports/result.txt","content":"` + rawContentMarker + `"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`)
 	executeRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/mcp", bytes.NewReader(mcpBody))
 	executeRequest.Header.Set("Authorization", "AegisPermit "+authorized.Permit.PermitToken)
+	executeRequest.Header.Set(mcp.HeaderExecutionProof, httpExecutionProof(t, authorized, "workspace-proof-01"))
 	executeRequest.Header.Set(mcp.HeaderProtocolVersion, mcp.ProtocolVersion20260728)
 	executeRequest.Header.Set(mcp.HeaderMethod, "tools/call")
 	executeRequest.Header.Set(mcp.HeaderName, "workspace.write")
@@ -921,7 +934,7 @@ func testHandlerWithOptions(t *testing.T, sessionAuditPath string, scenarios []m
 func testHandlerWithServerOptions(t *testing.T, sessionAuditPath string, scenarios []models.Scenario, discoveryRoots []string, options httpapi.Options) http.Handler {
 	t.Helper()
 	if options.AuthorizationIntake == nil {
-		developmentIntake, err := intake.NewLoopbackDevelopment("httpapi-test")
+		developmentIntake, err := intake.NewLoopbackDevelopment("httpapi-test", httpTestWorkloadBinding(t))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1015,6 +1028,9 @@ func trustedProxyMCPTestHandler(t *testing.T, provider *intake.TrustedProxy, ups
 		t.Fatal(err)
 	}
 	r := router.New(cfg, store)
+	if err := r.RegisterWorkloadPublicKey(httpTestWorkloadKeyID, httpTestWorkloadPrivateKey().Public().(ed25519.PublicKey)); err != nil {
+		t.Fatal(err)
+	}
 	proxy, err := mcp.New(r, r.SemanticRegistry(), upstreamURL, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1036,6 +1052,8 @@ func setTrustedProxyAuthorizationHeaders(header http.Header) {
 	header.Set(intake.HeaderWorkloadID, "finance-workload-v1")
 	header.Set(intake.HeaderDelegatedScopes, "payment.transfer")
 	header.Set(intake.HeaderDelegationFingerprint, strings.Repeat("b", 64))
+	header.Set(intake.HeaderWorkloadKeyID, httpTestWorkloadKeyID)
+	header.Set(intake.HeaderWorkloadKeyThumbprint, httpTestWorkloadBindingValue().PublicKeyThumbprint)
 }
 
 func setTrustedProxyWorkspaceAuthorizationHeaders(header http.Header) {
@@ -1044,4 +1062,40 @@ func setTrustedProxyWorkspaceAuthorizationHeaders(header http.Header) {
 	header.Set(intake.HeaderWorkloadID, "workspace-workload-v1")
 	header.Set(intake.HeaderDelegatedScopes, "workspace.write")
 	header.Set(intake.HeaderDelegationFingerprint, strings.Repeat("e", 64))
+	header.Set(intake.HeaderWorkloadKeyID, httpTestWorkloadKeyID)
+	header.Set(intake.HeaderWorkloadKeyThumbprint, httpTestWorkloadBindingValue().PublicKeyThumbprint)
+}
+
+func httpTestWorkloadPrivateKey() ed25519.PrivateKey {
+	seed := make([]byte, ed25519.SeedSize)
+	for index := range seed {
+		seed[index] = byte(100 + index)
+	}
+	return ed25519.NewKeyFromSeed(seed)
+}
+
+func httpTestWorkloadBindingValue() intake.WorkloadBinding {
+	thumbprint, _ := executionproof.Thumbprint(httpTestWorkloadPrivateKey().Public().(ed25519.PublicKey))
+	return intake.WorkloadBinding{KeyID: httpTestWorkloadKeyID, PublicKeyThumbprint: thumbprint}
+}
+
+func httpTestWorkloadBinding(t *testing.T) intake.WorkloadBinding {
+	t.Helper()
+	binding := httpTestWorkloadBindingValue()
+	if binding.PublicKeyThumbprint == "" {
+		t.Fatal("derive test workload thumbprint")
+	}
+	return binding
+}
+
+func httpExecutionProof(t *testing.T, authorized models.ActionAuthorizationResponse, nonce string) string {
+	t.Helper()
+	proof, err := executionproof.Sign(httpTestWorkloadPrivateKey(), httpTestWorkloadKeyID, executionproof.Claims{
+		PermitID: authorized.Permit.PermitID, ActionDigest: authorized.Decision.AuthorizationEnvelope.ActionDigest,
+		HTTPMethod: http.MethodPost, HTTPPath: "/mcp", IssuedAt: authorized.Permit.IssuedAt.Unix(), Nonce: nonce,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proof
 }

@@ -60,6 +60,7 @@ permit_id / jti      signing_key_id / kid
 permit_class         execution | simulation
 request_id           principal_id
 agent_id / workload_id
+executor_key_id / executor_key_thumbprint
 delegation_digest    tool / capability
 resource / operation action_digest
 profile_id / audience
@@ -77,9 +78,9 @@ TTL 必须是整秒，默认 30 秒，当前最大 15 分钟。
 
 ### Verification 与 replay defense
 
-执行边界验证签名、签发方、有效期、`permit_class`、主体/Agent/workload、工具、资源、操作、profile 版本、audience 和动作摘要，并原子消费许可。正常 `VerifyAndConsume` 与 MCP 只接受 `execution`；Server-owned Demo verifier 只接受 `simulation`，而且没有转发上游的能力。缺失、未知或不匹配的用途都会在消费前 fail closed。只有返回 `VERIFIED` 的 `execution` Permit 可以继续调用上游工具。失败结果包括无效签名、无效或错误用途、过期、撤销、错绑、动作不匹配和重放；同一许可的两个并发消费尝试最多只能有一个成功。
+执行边界验证签名、签发方、有效期、`permit_class`、主体/Agent/workload、工具、资源、操作、profile 版本、audience 和动作摘要，并原子消费许可。每个 `execution` Permit 还必须包含受签名保护的 `executor_key_id` 和 `executor_key_thumbprint`（`sha256:<64 位小写十六进制>`）；`simulation` Permit 不包含两者。正常 `VerifyAndConsume` 与 MCP 只接受 `execution`；Server-owned Demo verifier 只接受 `simulation`。只有返回 `VERIFIED` 的 execution Permit 可以调用 upstream。失败结果包括无效签名/用途、过期、撤销、`WRONG_EXECUTOR`、动作不匹配和重放。
 
-`permit_class` 由服务端入口决定并受签名保护，请求调用方不能指定或覆盖。引入该 claim 之前签发的旧 Token 会被视为无效，必须重新授权、重新签发；系统不会通过兼容分支把缺失用途默认解释为 `execution`。
+`permit_class` 由服务端入口决定并受签名保护，请求调用方不能指定或覆盖。缺失 executor key claims 的旧 execution Token 也视为无效，必须重新授权、重新签发；系统不会把缺失用途或 workload key 绑定的 Token 默认解释为可执行。
 
 Permit 生命周期为 `ISSUED → CONSUMED`，也可从 `ISSUED` 进入 `EXPIRED` 或 `REVOKED`。
 
@@ -99,7 +100,8 @@ MCP client
   → normalize tools/call
   → authorize exact action
   → issue signed permit
-  → verify + consume immediately before forwarding
+  → verify fresh Ed25519 workload proof
+  → verify + consume permit immediately before forwarding
   → upstream MCP server
   → audit result metadata
 ```
@@ -109,12 +111,18 @@ MCP client
 配置一个服务端拥有的 control upstream 即可挂载 permit-gated `POST /mcp`。`--mcp-upstream` 必须与某个内置 profile 的 `upstream_url` 完全相同；协议初始化/列表兼容方法使用该目标，而每个 `tools/call` 会被发送到其已解析 profile 自己拥有的 upstream。下面的 `--allow-development-intake` 只允许 loopback 请求将 body 身份作为 `development_only` 上下文，不能用于生产：
 
 ```bash
-go run ./cmd/server --allow-development-intake --mcp-upstream http://127.0.0.1:3001/mcp
+go run ./cmd/server --allow-development-intake \
+  --workload-public-key docs-demo=ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ \
+  --mcp-upstream http://127.0.0.1:3001/mcp
 ```
 
 `tools/call` 使用 `Authorization: AegisPermit <permit_token>`，并传入 `X-Aegis-Principal-Id`、`X-Aegis-Agent-Id`、`X-Aegis-Workload-Id`、`X-Aegis-Capability`、`X-Aegis-Resource`、`X-Aegis-Operation`；delegation fingerprint Header 可选。Tool 名称和 arguments 直接来自 JSON-RPC `params`，避免客户端用 Header 替换它们。Proxy 会剥离执行凭据、全部 `X-Aegis-*` Header、Cookie、内容编码、Session 上下文和任意扩展 Header；只转发规范 JSON 内容协商信息，以及从已验证正文重建的 MCP 路由 Header。`initialize`、`notifications/initialized`、`ping` 和 `tools/list` 只作为兼容协议方法透传；其他未支持方法 fail closed。
 
-对 MCP `2026-07-28` 请求，Proxy 还要求 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 `params._meta`/JSON-RPC 正文精确一致，并根据已验证正文重建转发 Header；重复 JSON key 会在 Permit 验证前拒绝。`tools/call` 的 `_meta` 只接受已校验的协议版本，未绑定的扩展元数据会被拒绝。当前是刻意收窄的 HTTP `POST` 子集：支持 `server/discover`、`tools/list` 和 permit-gated `tools/call`，不声称完整 MCP conformance。MRTR 的 `inputResponses`/`requestState` 与需要 Schema 感知验证的 `Mcp-Param-*` 暂未纳入 CanonicalAction，因此会 fail closed；未声明现代版本的旧 `initialize` 路径只作为兼容能力保留。
+此外，真实 `tools/call` 必须提供唯一一个 `X-Aegis-Execution-Proof` Header。Proof 是 Ed25519 签名的 compact Token，绑定 `permit_id`、`action_digest`、`POST`、`/mcp`、签发时间和 nonce；必须在 30 秒窗口内（允许 5 秒时钟偏差），并由受签名 Permit 指定的已注册 workload key 生成。缺失/无效 Proof、错 workload 和重复 nonce 都返回 `WRONG_EXECUTOR`，且不消费 Permit。Proxy 绝不向 upstream 转发 Proof。
+
+对 MCP `2026-07-28` 请求，Proxy 还要求 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 `params._meta`/JSON-RPC 正文精确一致，并根据已验证正文重建转发 Header；重复 JSON key 会在 Permit 验证前拒绝。`tools/call` 的 `_meta` 只接受已校验的协议版本，未绑定的扩展元数据会被拒绝。当前是刻意收窄的 HTTP `POST` 子集：支持 `server/discover`、`tools/list` 和 permit-gated `tools/call`，不声称完整 MCP conformance。这个子集不会解码 Base64-wrapped `Mcp-Name`；即使解码值等于受支持的 ASCII Tool 名，也会 fail closed。MRTR 的 `inputResponses`/`requestState` 与需要 Schema 感知验证的 `Mcp-Param-*` 暂未纳入 CanonicalAction，因此同样 fail closed；未声明现代版本的旧 `initialize` 路径只作为兼容能力保留。
+
+`server/discover` 与 `tools/list` 响应由已配置 upstream 转发而来。其中的 description、instructions 与其他 metadata 始终是不可信上游内容：Aegis 不会清洗它们，也不会把它们变成可安全写入 system prompt 的内容。Host 必须隔离并审查这些输入；由此形成的任何真实 `tools/call` 仍必须独立通过 Policy、语义 profile 与 Execution Permit 边界。
 
 ### 恰好两个内置语义动作
 
@@ -146,7 +154,8 @@ go run ./cmd/server --allow-development-intake --mcp-upstream http://127.0.0.1:3
 
 ```bash
 # 终端 1
-go run ./cmd/server --allow-development-intake
+go run ./cmd/server --allow-development-intake \
+  --workload-public-key docs-demo=ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ
 
 # 终端 2
 curl -sS -H "Content-Type: application/json" --data-binary @docs/examples/payment-send-valid.json http://127.0.0.1:8080/api/actions/authorize
@@ -182,22 +191,23 @@ curl -sS -H "Content-Type: application/json" --data-binary @docs/examples/worksp
 独立 Server 只能选择一种身份来源模式：
 
 1. **RejectAll** — 安全默认值。没有显式配置 intake 时，HTTP 授权 fail closed。
-2. **LoopbackDevelopment** — 只能通过 `--allow-development-intake` 开启。它只接受 direct peer 为 loopback 的 body 身份，并记录 assurance `development_only`。
+2. **LoopbackDevelopment** — 只能通过 `--allow-development-intake` 开启。它只接受 direct peer 为 loopback 的 body 身份，并记录 assurance `development_only`；启动时必须另外配置恰好一个 workload 公钥，该绑定绝不从 body 获取。
 3. **TrustedProxy** — 假定 Aegis 位于另一个已完成身份认证的反向代理之后；只有 `request.RemoteAddr` 中的直接 TCP 对端属于显式配置的信任 CIDR，才接受该代理注入的身份 Header。Provenance 记录 `source=trusted_integration`、配置的 provider ID、`assurance=authenticated_context` 和服务端建立时间。
 
-TrustedProxy 只使用以下明确 Header：`X-Aegis-Authenticated-Principal`、`X-Aegis-Agent-Id`、`X-Aegis-Workload-Id`、`X-Aegis-Delegated-Scopes`、`X-Aegis-Delegation-Fingerprint`。当前聚焦契约把认证主体表示为 `human` 类型。身份标识必须是精确的 1–128 字节 metadata identifier。Scopes 只接受一个逗号分隔 Header：逗号两侧可选 SP/HTAB 会被移除，空 scope 和重复 scope 会拒绝，接受后排序存储。Delegation fingerprint 必须恰好是 64 个十六进制 SHA-256 字符，不能是 bearer token、API key、Cookie、密码或带 `sha256:` 前缀的值。
+TrustedProxy 只使用以下明确 Header：`X-Aegis-Authenticated-Principal`、`X-Aegis-Agent-Id`、`X-Aegis-Workload-Id`、`X-Aegis-Delegated-Scopes`、`X-Aegis-Delegation-Fingerprint`、`X-Aegis-Workload-Key-Id`、`X-Aegis-Workload-Key-Thumbprint`。后两者组成 `WorkloadBinding`，必须来自已认证基础设施上下文，绝不从授权 JSON body 获取。Thumbprint 必须恰好为 `sha256:` 加 64 位小写十六进制。
 
 是否信任发送方只取决于 direct peer。`X-Forwarded-For`、`Forwarded` 和 `X-Real-IP` 永远不参与信任判断。建立信任后，TrustedProxy 在 Policy、Permit 签发和审计之前，用可信 Header 身份覆盖 JSON proposal 中的 principal、Agent、workload 与 delegated authority；任何信任错误都不会降级使用 body 身份。
 
 ```bash
 go run ./cmd/server \
   --trusted-proxy-cidr 127.0.0.1/32 \
-  --trusted-proxy-provider-id local-auth-gateway
+  --trusted-proxy-provider-id local-auth-gateway \
+  --workload-public-key finance-workload-key=<unpadded-base64url-Ed25519-public-key>
 ```
 
 可重复传入 `--trusted-proxy-cidr`，同时允许更多 IPv4/IPv6 direct peer。CIDR 与 provider ID 必须成对配置；TrustedProxy 不能与 `--allow-development-intake` 同时启用，歧义或不完整配置会阻止 Server 启动。
 
-**Aegis 自身不认证用户，也不验证 OAuth Token。** 它消费由另一个可信认证边界已经建立的身份。TrustedProxy 只是窄范围 provenance Adapter，不是 IAM、SSO、OAuth 或 RBAC 平台；传输保护和认证代理的安全运行仍由部署方负责。
+**Aegis 自身不认证用户，也不验证 OAuth Token。** Proof of possession 只证明某个 workload 对一次新鲜 MCP 请求持有已注册私钥；它不是硬件证明、软件完整性测量，也不能证明未声明下游组件不存在。私钥被窃取或共用时，该绑定会失效。
 
 Legacy flat request 兼容格式**没有 Execution Permit 资格**。即使 intake 已成功认证并封装请求，`Router.AuthorizeTrustedAction` 仍要求结构化 principal、Agent/workload、delegated authority、tool 与 action context。`allow_legacy_flat_requests` 只保留 Execution Permit 签发之外的废弃 Policy/兼容解释能力；它绝不允许可信身份降级成 `user_id`、`agent_id` 或 `token_scopes` 后签发可执行 Permit。
 
@@ -253,7 +263,7 @@ go run ./cmd/server --enable-experimental-inventory
 go run ./cmd/server
 ```
 
-打开 [http://localhost:8080](http://localhost:8080)。这会运行 Server-owned Demo，但 HTTP 授权入口默认处于 RejectAll、会 fail closed。仅做本地 API/MCP 开发时增加 `--allow-development-intake`；生产形态集成则放在已认证代理之后，同时配置两个 trusted-proxy 参数，两种模式不能共存。也可使用 `docker compose up --build`。需要 MCP enforcement 时，再增加 `--mcp-upstream <absolute-http(s)-url>`，并按[试点协议](docs/experiments/enterprise-agent-pilot.zh-CN.md)先连接无害的受控上游；不要直接连接生产工具或凭据。
+打开 [http://localhost:8080](http://localhost:8080)。这会运行 Server-owned Demo，但 HTTP 授权入口默认处于 RejectAll。本地执行开发还需同时传入 `--allow-development-intake` 和恰好一个 `--workload-public-key <kid>=<无填充 base64url Ed25519 公钥>`；trusted-proxy 模式可重复该参数注册多个 key。需要 MCP enforcement 时再增加 `--mcp-upstream <absolute-http(s)-url>`，并先连接无害受控 upstream。
 
 ## 审计与证据真相
 

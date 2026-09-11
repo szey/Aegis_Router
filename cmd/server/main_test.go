@@ -1,9 +1,16 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
+	"path/filepath"
 	"testing"
 
+	"agent-governance-gateway/internal/audit"
+	"agent-governance-gateway/internal/config"
+	"agent-governance-gateway/internal/executionproof"
 	"agent-governance-gateway/internal/intake"
+	"agent-governance-gateway/internal/router"
 )
 
 func TestConfigureAuthorizationIntakeSelectsOneExplicitMode(t *testing.T) {
@@ -21,7 +28,11 @@ func TestConfigureAuthorizationIntakeSelectsOneExplicitMode(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			provider, mode, err := configureAuthorizationIntake(test.development, test.cidrs, test.providerID)
+			var binding []intake.WorkloadBinding
+			if test.development {
+				binding = []intake.WorkloadBinding{{KeyID: "development-key", PublicKeyThumbprint: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+			}
+			provider, mode, err := configureAuthorizationIntake(test.development, test.cidrs, test.providerID, binding...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -43,6 +54,37 @@ func TestConfigureAuthorizationIntakeSelectsOneExplicitMode(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRegisterWorkloadPublicKeysUsesStrictEd25519Base64URL(t *testing.T) {
+	cfg, err := config.Load(filepath.Join("..", "..", "configs", "policy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := audit.NewStore("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := router.New(cfg, store)
+	seed := make([]byte, ed25519.SeedSize)
+	for index := range seed {
+		seed[index] = byte(index + 7)
+	}
+	publicKey := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
+	encoded := base64.RawURLEncoding.EncodeToString(publicKey)
+	bindings, err := registerWorkloadPublicKeys(r, []string{"workload-key-01=" + encoded})
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("bindings=%#v err=%v", bindings, err)
+	}
+	thumbprint, _ := executionproof.Thumbprint(publicKey)
+	if bindings[0] != (intake.WorkloadBinding{KeyID: "workload-key-01", PublicKeyThumbprint: thumbprint}) {
+		t.Fatalf("binding=%#v", bindings[0])
+	}
+	for _, invalid := range []string{"missing-separator", "key=***", "key=AA"} {
+		if _, err := registerWorkloadPublicKeys(r, []string{invalid}); err == nil {
+			t.Fatalf("invalid workload key %q accepted", invalid)
+		}
 	}
 }
 

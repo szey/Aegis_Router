@@ -4,12 +4,14 @@
 package verifier
 
 import (
+	"crypto/ed25519"
 	"crypto/subtle"
 	"errors"
 	"fmt"
 	"time"
 
 	"agent-governance-gateway/internal/canonicalaction"
+	"agent-governance-gateway/internal/executionproof"
 	"agent-governance-gateway/internal/keyprovider"
 	"agent-governance-gateway/internal/permit"
 )
@@ -39,6 +41,12 @@ const (
 	OutcomeInvalidAction    Outcome = "INVALID_ACTION"
 	OutcomeNotYetValid      Outcome = "NOT_YET_VALID"
 	OutcomeWrongPermitClass Outcome = "WRONG_PERMIT_CLASS"
+	OutcomeWrongExecutor    Outcome = "WRONG_EXECUTOR"
+)
+
+const (
+	DefaultExecutionProofMaxAge = 30 * time.Second
+	DefaultExecutionProofSkew   = 5 * time.Second
 )
 
 var ErrInvalidConfiguration = errors.New("invalid verifier configuration")
@@ -72,6 +80,10 @@ type Verifier struct {
 	expectedIssuer string
 	store          permit.Store
 	clock          func() time.Time
+	workloadKeys   *executionproof.Registry
+	proofNonces    *executionproof.NonceStore
+	proofMaxAge    time.Duration
+	proofClockSkew time.Duration
 }
 
 func New(provider keyprovider.VerificationProvider, expectedIssuer string, store permit.Store, options ...Option) (*Verifier, error) {
@@ -89,11 +101,123 @@ func New(provider keyprovider.VerificationProvider, expectedIssuer string, store
 		expectedIssuer: expectedIssuer,
 		store:          store,
 		clock:          time.Now,
+		workloadKeys:   executionproof.NewRegistry(),
+		proofNonces:    executionproof.NewNonceStore(),
+		proofMaxAge:    DefaultExecutionProofMaxAge,
+		proofClockSkew: DefaultExecutionProofSkew,
 	}
 	for _, option := range options {
 		option(result)
 	}
 	return result, nil
+}
+
+// RegisterWorkloadPublicKey adds a server-owned Ed25519 verification key.
+// Embedders should complete registration before accepting MCP traffic.
+func (v *Verifier) RegisterWorkloadPublicKey(keyID string, publicKey ed25519.PublicKey) error {
+	return v.workloadKeys.Register(keyID, publicKey)
+}
+
+// VerifyExecutionProof authenticates workload possession without consuming
+// the execution Permit. Callers may invoke VerifyAndConsume only after this
+// method returns VERIFIED.
+func (v *Verifier) VerifyExecutionProof(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) Result {
+	result := v.inspectPermit(permitToken, permit.ClassExecution)
+	if result.Outcome != OutcomeVerified {
+		return result
+	}
+	claims := result.Claims
+	if claims == nil || claims.ExecutorKeyThumbprint == "" {
+		result.Outcome = OutcomeInvalidPermit
+		return result
+	}
+	keyID, err := executionproof.TokenKeyID(proofToken)
+	if err != nil {
+		result.Outcome = OutcomeWrongExecutor
+		return result
+	}
+	publicKey, err := v.workloadKeys.VerificationKey(keyID)
+	if err != nil {
+		result.Outcome = OutcomeWrongExecutor
+		return result
+	}
+	proofClaims, err := executionproof.Verify(publicKey, proofToken)
+	if err != nil {
+		result.Outcome = OutcomeWrongExecutor
+		return result
+	}
+	thumbprint, err := executionproof.Thumbprint(publicKey)
+	if err != nil || keyID != claims.ExecutorKeyID || subtle.ConstantTimeCompare([]byte(thumbprint), []byte(claims.ExecutorKeyThumbprint)) != 1 {
+		result.Outcome = OutcomeWrongExecutor
+		return result
+	}
+	if proofClaims.PermitID != claims.PermitID ||
+		subtle.ConstantTimeCompare([]byte(proofClaims.ActionDigest), []byte(claims.ActionDigest)) != 1 ||
+		proofClaims.HTTPMethod != httpMethod || proofClaims.HTTPPath != httpPath {
+		result.Outcome = OutcomeWrongExecutor
+		return result
+	}
+	now := result.VerifiedAt
+	issuedAt := time.Unix(proofClaims.IssuedAt, 0).UTC()
+	if issuedAt.After(now.Add(v.proofClockSkew)) || now.Sub(issuedAt) > v.proofMaxAge {
+		result.Outcome = OutcomeWrongExecutor
+		return result
+	}
+	if outcome := actionBindingOutcome(action, *claims); outcome != OutcomeVerified {
+		result.Outcome = outcome
+		return result
+	}
+	expiresAt := issuedAt.Add(v.proofMaxAge + v.proofClockSkew).Unix()
+	if !v.proofNonces.Use(keyID, proofClaims.Nonce, now.Unix(), expiresAt) {
+		result.Outcome = OutcomeWrongExecutor
+		return result
+	}
+	result.Verified = true
+	return result
+}
+
+func actionBindingOutcome(action canonicalaction.Action, claims permit.Claims) Outcome {
+	if err := action.Validate(); err != nil {
+		return OutcomeInvalidAction
+	}
+	if action.PrincipalID != claims.PrincipalID {
+		return OutcomeWrongPrincipal
+	}
+	if action.AgentID != claims.AgentID {
+		return OutcomeWrongAgent
+	}
+	if action.WorkloadID != claims.WorkloadID {
+		return OutcomeWrongWorkload
+	}
+	if action.DelegatedAuthorityFingerprint != claims.DelegatedAuthorityFingerprint {
+		return OutcomeWrongDelegation
+	}
+	if action.Tool != claims.Tool {
+		return OutcomeWrongTool
+	}
+	if action.Capability != claims.Capability {
+		return OutcomeWrongCapability
+	}
+	if action.Resource != claims.Resource {
+		return OutcomeWrongResource
+	}
+	if action.Operation != claims.Operation {
+		return OutcomeWrongOperation
+	}
+	if action.ProfileID != claims.ProfileID {
+		return OutcomeWrongProfile
+	}
+	if action.Audience != claims.Audience {
+		return OutcomeWrongAudience
+	}
+	digest, err := action.Digest()
+	if err != nil {
+		return OutcomeInvalidAction
+	}
+	if subtle.ConstantTimeCompare([]byte(digest), []byte(claims.ActionDigest)) != 1 {
+		return OutcomeActionMismatch
+	}
+	return OutcomeVerified
 }
 
 // VerifyAndConsume authenticates the credential, verifies every action
@@ -110,6 +234,44 @@ func (v *Verifier) VerifySimulationAndConsume(permitToken string, action canonic
 }
 
 func (v *Verifier) verifyAndConsume(permitToken string, action canonicalaction.Action, expectedClass permit.Class) Result {
+	result := v.inspectPermit(permitToken, expectedClass)
+	if result.Outcome != OutcomeVerified {
+		return result
+	}
+	now := result.VerifiedAt
+	claims := *result.Claims
+
+	if outcome := actionBindingOutcome(action, claims); outcome != OutcomeVerified {
+		result.Outcome = outcome
+		return result
+	}
+
+	// Re-read the clock at the actual consume boundary: canonicalization and
+	// signature checks must not let a permit slip past its expiry.
+	consumeTime := v.clock().UTC()
+	if consumeTime.Before(now) {
+		consumeTime = now
+	}
+	result.VerifiedAt = consumeTime
+	consumed := v.store.Consume(claims.PermitID, consumeTime)
+	result.State = consumed.Record.State
+	switch consumed.Outcome {
+	case permit.ConsumeSucceeded:
+		result.Outcome = OutcomeVerified
+		result.Verified = true
+	case permit.ConsumeExpired:
+		result.Outcome = OutcomeExpired
+	case permit.ConsumeReplayed:
+		result.Outcome = OutcomeReplayed
+	case permit.ConsumeRevoked:
+		result.Outcome = OutcomeRevoked
+	default:
+		result.Outcome = OutcomeUnknownPermit
+	}
+	return result
+}
+
+func (v *Verifier) inspectPermit(permitToken string, expectedClass permit.Class) Result {
 	now := v.clock().UTC()
 	result := Result{Outcome: OutcomeInvalidSignature, VerifiedAt: now}
 	keyID, err := permit.TokenKeyID(permitToken)
@@ -169,83 +331,7 @@ func (v *Verifier) verifyAndConsume(permitToken string, action canonicalaction.A
 		result.Outcome = OutcomeInvalidPermit
 		return result
 	}
-
-	if err := action.Validate(); err != nil {
-		result.Outcome = OutcomeInvalidAction
-		return result
-	}
-	if action.PrincipalID != claims.PrincipalID {
-		result.Outcome = OutcomeWrongPrincipal
-		return result
-	}
-	if action.AgentID != claims.AgentID {
-		result.Outcome = OutcomeWrongAgent
-		return result
-	}
-	if action.WorkloadID != claims.WorkloadID {
-		result.Outcome = OutcomeWrongWorkload
-		return result
-	}
-	if action.DelegatedAuthorityFingerprint != claims.DelegatedAuthorityFingerprint {
-		result.Outcome = OutcomeWrongDelegation
-		return result
-	}
-	if action.Tool != claims.Tool {
-		result.Outcome = OutcomeWrongTool
-		return result
-	}
-	if action.Capability != claims.Capability {
-		result.Outcome = OutcomeWrongCapability
-		return result
-	}
-	if action.Resource != claims.Resource {
-		result.Outcome = OutcomeWrongResource
-		return result
-	}
-	if action.Operation != claims.Operation {
-		result.Outcome = OutcomeWrongOperation
-		return result
-	}
-	if action.ProfileID != claims.ProfileID {
-		result.Outcome = OutcomeWrongProfile
-		return result
-	}
-	if action.Audience != claims.Audience {
-		result.Outcome = OutcomeWrongAudience
-		return result
-	}
-	digest, err := action.Digest()
-	if err != nil {
-		result.Outcome = OutcomeInvalidAction
-		return result
-	}
-	if subtle.ConstantTimeCompare([]byte(digest), []byte(claims.ActionDigest)) != 1 {
-		result.Outcome = OutcomeActionMismatch
-		return result
-	}
-
-	// Re-read the clock at the actual consume boundary: canonicalization and
-	// signature checks must not let a permit slip past its expiry.
-	consumeTime := v.clock().UTC()
-	if consumeTime.Before(now) {
-		consumeTime = now
-	}
-	result.VerifiedAt = consumeTime
-	consumed := v.store.Consume(claims.PermitID, consumeTime)
-	result.State = consumed.Record.State
-	switch consumed.Outcome {
-	case permit.ConsumeSucceeded:
-		result.Outcome = OutcomeVerified
-		result.Verified = true
-	case permit.ConsumeExpired:
-		result.Outcome = OutcomeExpired
-	case permit.ConsumeReplayed:
-		result.Outcome = OutcomeReplayed
-	case permit.ConsumeRevoked:
-		result.Outcome = OutcomeRevoked
-	default:
-		result.Outcome = OutcomeUnknownPermit
-	}
+	result.Outcome = OutcomeVerified
 	return result
 }
 

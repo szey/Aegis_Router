@@ -42,6 +42,7 @@ func TestDisabledAdvisoryEnginesDoNotChangeAuthorization(t *testing.T) {
 	seal := func() intake.Authorization {
 		authorization, sealErr := intake.NewTrustedAuthorization(request, intake.IdentityContext{
 			Principal: request.Principal, Agent: request.Agent, DelegatedAuthority: request.Authority,
+			WorkloadBinding: intake.WorkloadBinding{KeyID: "advisory-test-workload-key", PublicKeyThumbprint: "sha256:" + strings.Repeat("e", 64)},
 		}, "router-internal-test", now)
 		if sealErr != nil {
 			t.Fatal(sealErr)

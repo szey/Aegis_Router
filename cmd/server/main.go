@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -13,6 +15,7 @@ import (
 	"agent-governance-gateway/internal/audit"
 	"agent-governance-gateway/internal/config"
 	"agent-governance-gateway/internal/discovery"
+	"agent-governance-gateway/internal/executionproof"
 	"agent-governance-gateway/internal/httpapi"
 	"agent-governance-gateway/internal/intake"
 	"agent-governance-gateway/internal/router"
@@ -33,8 +36,10 @@ func main() {
 	allowDevelopmentIntake := flag.Bool("allow-development-intake", false, "accept caller-supplied authorization identity from loopback requests only (development only)")
 	var discoveryRoots stringList
 	var trustedProxyCIDRs strictStringList
+	var workloadPublicKeys strictStringList
 	flag.Var(&discoveryRoots, "discovery-root", "optional approved inventory root; repeat for multiple roots")
 	flag.Var(&trustedProxyCIDRs, "trusted-proxy-cidr", "direct TCP peer CIDR trusted to assert authorization identity; repeat for multiple IPv4/IPv6 CIDRs")
+	flag.Var(&workloadPublicKeys, "workload-public-key", "registered executor Ed25519 public key as key-id=base64url; repeat for multiple workloads")
 	trustedProxyProviderID := flag.String("trusted-proxy-provider-id", "", "identity provider ID recorded for trusted-proxy authorization provenance")
 	flag.Parse()
 
@@ -64,13 +69,30 @@ func main() {
 	}
 
 	r := router.New(cfg, store)
-	authorizationIntake, authorizationIntakeMode, intakeErr := configureAuthorizationIntake(*allowDevelopmentIntake, trustedProxyCIDRs, *trustedProxyProviderID)
+	workloadBindings, keyErr := registerWorkloadPublicKeys(r, workloadPublicKeys)
+	if keyErr != nil {
+		logger.Error("configure workload execution-proof keys", "error", keyErr)
+		os.Exit(1)
+	}
+	var developmentBinding []intake.WorkloadBinding
+	if *allowDevelopmentIntake {
+		if len(workloadBindings) != 1 {
+			logger.Error("configure authorization intake", "error", "--allow-development-intake requires exactly one --workload-public-key")
+			os.Exit(1)
+		}
+		developmentBinding = workloadBindings
+	}
+	authorizationIntake, authorizationIntakeMode, intakeErr := configureAuthorizationIntake(*allowDevelopmentIntake, trustedProxyCIDRs, *trustedProxyProviderID, developmentBinding...)
 	if intakeErr != nil {
 		logger.Error("configure authorization intake", "error", intakeErr)
 		os.Exit(1)
 	}
 	var mcpHandler http.Handler
 	if strings.TrimSpace(*mcpUpstream) != "" {
+		if len(workloadBindings) == 0 {
+			logger.Error("configure MCP enforcement adapter", "error", "--mcp-upstream requires at least one --workload-public-key")
+			os.Exit(1)
+		}
 		proxy, proxyErr := mcp.New(r, r.SemanticRegistry(), strings.TrimSpace(*mcpUpstream), nil)
 		if proxyErr != nil {
 			logger.Error("configure MCP enforcement adapter", "error", proxyErr)
@@ -99,13 +121,16 @@ func main() {
 	}
 }
 
-func configureAuthorizationIntake(allowDevelopment bool, trustedProxyCIDRs []string, trustedProxyProviderID string) (intake.TrustedAuthorizationIntake, string, error) {
+func configureAuthorizationIntake(allowDevelopment bool, trustedProxyCIDRs []string, trustedProxyProviderID string, developmentBinding ...intake.WorkloadBinding) (intake.TrustedAuthorizationIntake, string, error) {
 	trustedProxyConfigured := len(trustedProxyCIDRs) > 0 || trustedProxyProviderID != ""
 	if allowDevelopment && trustedProxyConfigured {
 		return nil, "", fmt.Errorf("--allow-development-intake cannot be combined with trusted-proxy configuration")
 	}
 	if allowDevelopment {
-		provider, err := intake.NewLoopbackDevelopment("server-loopback-development")
+		if len(developmentBinding) != 1 {
+			return nil, "", fmt.Errorf("--allow-development-intake requires exactly one workload binding")
+		}
+		provider, err := intake.NewLoopbackDevelopment("server-loopback-development", developmentBinding...)
 		return provider, "loopback_development", err
 	}
 	if trustedProxyConfigured {
@@ -113,6 +138,30 @@ func configureAuthorizationIntake(allowDevelopment bool, trustedProxyCIDRs []str
 		return provider, "trusted_proxy", err
 	}
 	return intake.RejectAll{}, "reject_all", nil
+}
+
+func registerWorkloadPublicKeys(r *router.Router, values []string) ([]intake.WorkloadBinding, error) {
+	bindings := make([]intake.WorkloadBinding, 0, len(values))
+	for _, value := range values {
+		keyID, encodedKey, found := strings.Cut(value, "=")
+		if !found || keyID == "" || encodedKey == "" {
+			return nil, fmt.Errorf("workload public key must use key-id=base64url format")
+		}
+		decoded, err := base64.RawURLEncoding.Strict().DecodeString(encodedKey)
+		if err != nil || len(decoded) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("workload public key %q must contain exactly %d Ed25519 bytes encoded as unpadded base64url", keyID, ed25519.PublicKeySize)
+		}
+		publicKey := ed25519.PublicKey(decoded)
+		if err := r.RegisterWorkloadPublicKey(keyID, publicKey); err != nil {
+			return nil, err
+		}
+		thumbprint, err := executionproof.Thumbprint(publicKey)
+		if err != nil {
+			return nil, err
+		}
+		bindings = append(bindings, intake.WorkloadBinding{KeyID: keyID, PublicKeyThumbprint: thumbprint})
+	}
+	return bindings, nil
 }
 
 type stringList []string

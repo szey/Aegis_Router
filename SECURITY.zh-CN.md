@@ -22,9 +22,13 @@ Permit 会在真实工具副作用前被验证和原子消费。`permit_id` 只�
 
 HTTP 授权请求还必须经过 `TrustedAuthorizationIntake`。独立 Server 有三种模式：默认 fail closed 的 `RejectAll`；显式开启的 `LoopbackDevelopment`，只对 loopback direct peer 信任 body 身份并标记 `development_only`；以及 `TrustedProxy`，只从直接 TCP 对端属于已配置 IPv4/IPv6 CIDR 的另一个已认证代理接收严格身份 Header。TrustedProxy 与开发模式不能共存，不完整的 trusted-proxy 配置会阻止启动。
 
-TrustedProxy 只根据 `request.RemoteAddr` 建立发送方信任，永远不使用 `X-Forwarded-For`、`Forwarded` 或 `X-Real-IP`。必需身份 Header 必须单一、长度受限、无控制字符并符合严格语法。Delegated scopes 只有一种逗号分隔表示，空项/重复项会拒绝，接受后排序。Delegation fingerprint 必须恰好是 64 个十六进制 SHA-256 字符；不接受 bearer/OAuth Token、API key、密码、Cookie 或其他原始凭据。校验通过后，这些 Header 中的 principal、Agent/workload 与 delegated authority 会完整替换 request body 的对应字段。
+TrustedProxy 只根据 `request.RemoteAddr` 建立发送方信任，永远不使用 `X-Forwarded-For`、`Forwarded` 或 `X-Real-IP`。必需身份 Header 必须单一、长度受限、无控制字符并符合严格语法。Proxy 还必须断言 `X-Aegis-Workload-Key-Id` 与 `X-Aegis-Workload-Key-Thumbprint`；这一 `WorkloadBinding` 来自已认证基础设施上下文，授权 JSON body 不存在对应输入字段。Delegated scopes 与 delegation fingerprint 仍按严格格式校验，不接受任何原始凭据。
 
 成功的 Proxy intake 会在 `authorization_context_provenance` 中记录 `source=trusted_integration`、配置的 `provider_id`、`assurance=authenticated_context` 和服务端 `established_at`；失败时永不降级使用 body 身份。`Router` 仍然没有接受裸 `models.Request` 的普通 Permit 签发入口，只消费 sealed `intake.Authorization`。Aegis 自身既不认证用户，也不验证 OAuth Token；它只消费另一个可信认证边界已经建立的身份。这不是完整 IAM、SSO、OAuth 或 RBAC 系统。同一进程或网络本身不等于身份认证；认证代理的安全运行、传输保护与网络拓扑约束仍由部署方负责。
+
+每个 execution Permit 都会签名绑定 executor key ID 和 Ed25519 公钥的 SHA-256 thumbprint。MCP `tools/call` 还必须携带 `X-Aegis-Execution-Proof`：对 Permit ID、action digest、`POST /mcp`、签发时间和 nonce 的新鲜 Ed25519 紧凑签名。Aegis 只从本地注册 key 集合解析 Proof `kid`，校验公钥 thumbprint，拒绝过期 Proof 和重复 nonce，并在消费 Permit 或调用 upstream 之前完成全部检查。Proof 不会转发或写入审计。有效 Permit 被错 workload 提交时返回 `WRONG_EXECUTOR`，与格式错误/签名无效的 Permit 结果明确区分。
+
+该 Proof 只证明某个请求持有已注册私钥，不是硬件 attestation 或软件完整性测量。私钥被窃取、复制或共用会破坏该绑定。Nonce store 和注册 key 集合都是单进程内的；本里程不实现跨重启/多副本防重放。缺失 executor key claims 的旧 execution Permit 必须重新签发；simulation Permit 保持不绑 workload key，且仍不能进入 MCP 执行。
 
 Sealed intake 只是执行签发的必要条件，而不是充分条件：`Router.AuthorizeTrustedAction` 还必须确认请求保留结构化 principal、Agent/workload、delegated authority、tool 和 action 字段。废弃 flat request 会在执行 Permit 的 Policy 授权、审计创建和 Permit 签发前被拒绝。`allow_legacy_flat_requests` 只保留兼容用途的 Policy 解释能力；它不会让 flat request 获得 Execution Permit 资格，也不能让空 delegation fingerprint 或从 Agent ID 推导的 workload 进入签名 claims。
 
@@ -59,7 +63,9 @@ MCP 是当前唯一的生产形态 Adapter。Adapter 只接受签名绑定 `perm
 
 在 `permit_class` 引入之前签发的 Token 会被刻意视为无效，必须重新授权和签发；不得从缺失 claim 推断为 `execution`。
 
-MCP `2026-07-28` 的 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 JSON-RPC 正文必须一致；Proxy 拒绝重复 JSON key 和未绑定的 Tool `_meta`，剥离任意入站 Header/Session 上下文，并只重建最小传输信息与标准路由 Header。当前 focused subset 不缓存 Tool Schema，因此无法可靠校验 `Mcp-Param-*`，也没有把 MRTR `inputResponses`/`requestState` 纳入动作摘要；这些输入一律在上游前 fail closed。不要把这一子集描述为完整 MCP conformance。
+MCP `2026-07-28` 的 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 JSON-RPC 正文必须一致；Proxy 拒绝重复 JSON key 和未绑定的 Tool `_meta`，剥离任意入站 Header/Session 上下文，并只重建最小传输信息与标准路由 Header。Base64-wrapped `Mcp-Name` 当前不会被解码，而是 fail closed。当前 focused subset 不缓存 Tool Schema，因此无法可靠校验 `Mcp-Param-*`，也没有把 MRTR `inputResponses`/`requestState` 纳入动作摘要；这些输入一律在上游前 fail closed。不要把这一子集描述为完整 MCP conformance。
+
+Proxy 会转发已配置 upstream 的 `server/discover` 与 `tools/list` 响应。返回的 description、instructions 和其他 metadata 都是不可信内容，Aegis 不对其进行 sanitization；Host 不得在缺少自身隔离与审查时把它们放入可信 Prompt。该限制不会绕过后续真实 `tools/call` 的独立 Permit gate。
 
 保护只覆盖经过该 Adapter 的调用。Trusted Intake 只让身份来源显式、可拒绝和可审计，并不实现 IAM/SSO/RBAC；真实集成仍必须由已认证的中间件提供上下文。MCP 执行请求里的绑定 Header 只有在与已签名 Permit 完全匹配时才有效，本身不是身份凭据。上游 TLS/认证、transport framing、工具自身副作用、部署绕过和 confused-deputy 风险仍需要独立威胁建模。
 

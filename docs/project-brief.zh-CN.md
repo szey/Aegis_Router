@@ -61,9 +61,9 @@ Write redacted Audit Receipt
 
 HTTP body/header 中的 principal、Agent、workload 与 delegated authority 不能直接成为授权事实。`TrustedAuthorizationIntake` 必须先从已配置的信任边界解析并覆盖这些字段，再把来源、provider、assurance 与建立时间记录到 `authorization_context_provenance`。未配置 intake 时 HTTP 授权默认拒绝。
 
-独立 Server 只能选择三种模式之一：安全默认的 `RejectAll`；显式启用、只接受 loopback direct peer 的 body 身份并标记 `development_only` 的 `LoopbackDevelopment`；或者 `TrustedProxy`，只对位于已配置 IPv4/IPv6 CIDR 内的直接 TCP 对端接受严格的五个 Header 身份契约。TrustedProxy 只根据 `request.RemoteAddr` 建立信任，永远不用 `X-Forwarded-For`、`Forwarded` 或 `X-Real-IP`；缺失、重复、格式错误、首尾空白、超长或含控制字符的身份值，无效的 64 位十六进制 fingerprint，以及含空项/重复项/错误语法的逗号分隔 scopes 全部拒绝。接受的 scopes 会排序，并覆盖全部 body 身份字段。开发与 Proxy 模式不能共存。已认证中间件的嵌入进程仍可使用 static intake。
+独立 Server 只能选择三种模式之一：安全默认的 `RejectAll`、显式 `LoopbackDevelopment`、或 `TrustedProxy`。TrustedProxy 只对已配置 CIDR 内的直接 TCP 对端接受严格的七个 Header 身份与 workload key 契约。`WorkloadBinding{KeyID, PublicKeyThumbprint}` 必须来自已认证基础设施上下文，绝不从授权 JSON body 获取。开发模式同样需要另外配置一个公钥。TrustedProxy 只根据 `request.RemoteAddr` 建立信任，并覆盖全部 body 身份字段。
 
-TrustedProxy provenance 记录 `source=trusted_integration`、配置的 provider ID、`assurance=authenticated_context` 和服务端建立时间。Aegis 自身不认证用户，也不验证 OAuth Token；它只消费另一个可信认证边界建立的身份。这不是 IAM、SSO、OAuth、RBAC 或 bearer-token 验证。
+TrustedProxy provenance 记录 `source=trusted_integration`、配置的 provider ID、`assurance=authenticated_context` 和服务端建立时间。Aegis 自身不认证用户，也不验证 OAuth Token；它只消费另一个可信认证边界建立的身份。这不是 IAM、SSO、OAuth、RBAC 或 bearer-token 验证。签名 `workload_id` 只是对该 intake claim 的绑定，不是对远程 workload 状态或未声明下游组件的实时证明。
 
 `Router.AuthorizeTrustedAction(intake.Authorization)` 是唯一普通 Permit 签发入口。`Router` 不再暴露接受裸 `models.Request` 的 `AuthorizeAction/Authorize/Process`；进程内集成也必须调用 `intake.NewTrustedAuthorization(...)` 或经过 intake 实现来创建 sealed context。同一进程本身不是身份来源。Server-owned fixtures 只能使用名称和 provenance 都明确为 `simulated_demo` 的 synthetic 入口。
 
@@ -85,6 +85,7 @@ Permit claims 至少包含：
 
 - `jti/permit_id`、`signing_key_id` 与 `request_id`；
 - `issuer`、`principal_id`、`agent_id`、`workload_id`；
+- 只对 `execution` 强制的 `executor_key_id` 与 `executor_key_thumbprint`；
 - delegated authority digest/fingerprint；
 - `tool`、`capability`、`resource`、`operation`；
 - `action_digest` 与 `policy_version`；
@@ -110,13 +111,15 @@ Verifier 在副作用前检查签名、issuer、时间、Permit ID、主体、Ag
 
 ## MCP Adapter
 
-MCP 是 focused MVP 唯一的生产形态 Adapter。它使用与授权阶段相同的不可变语义 registry 分发 `tools/call`，验证签名绑定的 profile/audience/action，消费 Permit，只把规范化参数转发到该 profile 自己配置的 upstream，并记录响应状态、耗时等必要结果元数据。因此 payment 与 workspace write 共用同一个 CanonicalAction、Permit issuer、verifier、replay store 和 MCP enforcement boundary。
+MCP 是 focused MVP 唯一的生产形态 Adapter。`tools/call` 在消费 execution Permit 前，先用服务端注册的 workload 公钥验证新鲜 Ed25519 `X-Aegis-Execution-Proof`。Proof 绑定 Permit ID、action digest、`POST /mcp`、签发时间和 nonce；key ID 与公钥 thumbprint 必须匹配受签名 Permit。缺失/无效 Proof、错 workload、过期 Proof 和重复 nonce 都在 Permit 消费和 upstream 之前失败。Proof 不会转发或写入审计。随后 Adapter 才执行原有动作校验、原子 Permit 消费和规范参数转发。
+
+`WRONG_EXECUTOR` 明确区分“有效 Permit 但未证明持有绑定 workload key”与“Permit 签名无效”。Workload key registry 和 Proof nonce 状态目前都是单进程内的；私钥被窃取/共用、跨重启重放、多副本协调、硬件 attestation 和软件完整性测量仍未实现。
 
 `payment.send/v1` 只接受正整数最小货币单位金额、allowlist 币种和 allowlist 收款人，并按币种限制单笔金额。`workspace.write/v1` 只接受 JSON string `path` 与 `content`；path 是逻辑相对 `/` 分隔标识，不允许反斜杠、盘符前缀、空/`.`/`..`/`~` segment、首尾斜杠、控制字符或 normalization。示例限制为 path 1,024 bytes、content 4 KiB。它只转发到 mock/逻辑 upstream，不写主机文件；原始 content 参与摘要，但绝不进入正常审计。
 
 Adapter 不能在验证失败时“先调用、后告警”，也不能仅凭 `permit_id` 转发。上游 MCP 的 TLS、认证、工具副作用和部署绕过仍由部署方独立处理。
 
-当前 Adapter 对 MCP `2026-07-28` 校验 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 JSON-RPC 正文的一致性；拒绝重复 JSON key 与未绑定的 Tool `_meta`；剥离任意 Header/Session 上下文后再重建最小传输/路由 Header。它只实现 HTTP `POST` 的 `server/discover`、`tools/list` 与 permit-gated `tools/call` focused subset；MRTR 字段和 Schema 驱动的 `Mcp-Param-*` 暂时 fail closed，不声明完整协议 conformance。
+当前 Adapter 对 MCP `2026-07-28` 校验 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 JSON-RPC 正文的一致性；拒绝重复 JSON key 与未绑定的 Tool `_meta`；剥离任意 Header/Session 上下文后再重建最小传输/路由 Header。它只实现 HTTP `POST` 的 `server/discover`、`tools/list` 与 permit-gated `tools/call` focused subset；Base64-wrapped `Mcp-Name`、MRTR 字段和 Schema 驱动的 `Mcp-Param-*` 暂时 fail closed，不声明完整协议 conformance。Discovery/list 响应由 upstream 转发，因此其中的 description、instructions 和其他 metadata 是不可信 Host 输入，而不是经过 Aegis sanitization 的内容。
 
 ## Policy、Risk 与 obligations
 

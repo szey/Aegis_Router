@@ -355,6 +355,8 @@ type AuthorizationEnvelope struct {
 	PrincipalID                    string                   `json:"principal_id"`
 	AgentID                        string                   `json:"agent_id"`
 	WorkloadID                     string                   `json:"workload_id"`
+	ExecutorKeyID                  string                   `json:"executor_key_id,omitempty"`
+	ExecutorKeyThumbprint          string                   `json:"executor_key_thumbprint,omitempty"`
 	DelegatedCredentialFingerprint string                   `json:"delegated_credential_fingerprint,omitempty"`
 	AllowedCapability              string                   `json:"allowed_capability"`
 	AllowedTool                    string                   `json:"allowed_tool"`

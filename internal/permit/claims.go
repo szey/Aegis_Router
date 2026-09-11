@@ -60,6 +60,8 @@ type Claims struct {
 	PrincipalID                   string      `json:"principal"`
 	AgentID                       string      `json:"agent"`
 	WorkloadID                    string      `json:"workload"`
+	ExecutorKeyID                 string      `json:"executor_key_id,omitempty"`
+	ExecutorKeyThumbprint         string      `json:"executor_key_thumbprint,omitempty"`
 	DelegatedAuthorityFingerprint string      `json:"delegated_authority_fingerprint,omitempty"`
 	Tool                          string      `json:"tool"`
 	Capability                    string      `json:"capability"`
@@ -124,6 +126,19 @@ func (c Claims) Validate() error {
 	}
 	if c.DelegatedAuthorityFingerprint != "" && !fingerprintPattern.MatchString(c.DelegatedAuthorityFingerprint) {
 		return fmt.Errorf("%w: delegated_authority_fingerprint must be an Aegis-bound, algorithm-qualified SHA-256 digest", ErrInvalidClaims)
+	}
+	switch c.PermitClass {
+	case ClassExecution:
+		if keyprovider.ValidateKeyID(c.ExecutorKeyID) != nil {
+			return fmt.Errorf("%w: executor_key_id is required for execution permits", ErrInvalidClaims)
+		}
+		if !fingerprintPattern.MatchString(c.ExecutorKeyThumbprint) {
+			return fmt.Errorf("%w: executor_key_thumbprint is required for execution permits and must be a lowercase algorithm-qualified SHA-256 digest", ErrInvalidClaims)
+		}
+	case ClassSimulation:
+		if c.ExecutorKeyID != "" || c.ExecutorKeyThumbprint != "" {
+			return fmt.Errorf("%w: executor key binding is forbidden for simulation permits", ErrInvalidClaims)
+		}
 	}
 	if !actionDigestPattern.MatchString(c.ActionDigest) {
 		return fmt.Errorf("%w: action_digest must be a lowercase algorithm-qualified SHA-256 digest", ErrInvalidClaims)

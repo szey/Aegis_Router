@@ -61,9 +61,9 @@ Authorization and verification reuse the same canonicalizer. Receiving a Runtime
 
 Principal, Agent, workload, and delegated authority from an HTTP body/header cannot become authorization facts directly. `TrustedAuthorizationIntake` first resolves and overwrites those fields from a configured trust boundary, then records source, provider, assurance, and establishment time in `authorization_context_provenance`. HTTP authorization fails closed when no intake is configured.
 
-The standalone Server selects exactly one of three modes: secure-default `RejectAll`; explicit `LoopbackDevelopment`, which accepts body identity from a loopback direct peer and labels it `development_only`; or `TrustedProxy`, which accepts a strict five-header identity contract only from a direct TCP peer inside configured IPv4/IPv6 CIDRs. TrustedProxy derives trust only from `request.RemoteAddr`, never `X-Forwarded-For`, `Forwarded`, or `X-Real-IP`; it rejects missing, duplicate, malformed, whitespace-padded, oversized, or control-bearing identity values, invalid 64-hex fingerprints, and empty/duplicate/malformed comma-separated scopes. It sorts accepted scopes and overwrites every body identity field. Development and proxy modes cannot coexist. A static intake remains available to authenticated middleware in an embedding process.
+The standalone Server selects exactly one of three modes: secure-default `RejectAll`; explicit `LoopbackDevelopment`; or `TrustedProxy`, which accepts a strict seven-header identity-and-workload-key contract only from a direct TCP peer inside configured IPv4/IPv6 CIDRs. `WorkloadBinding{KeyID, PublicKeyThumbprint}` comes from that authenticated infrastructure context, never the authorization JSON body. Development mode likewise requires one separately configured public key. TrustedProxy derives trust only from `request.RemoteAddr`, never forwarded-address headers, and overwrites every body identity field. Development and proxy modes cannot coexist.
 
-TrustedProxy provenance records `source=trusted_integration`, configured provider ID, `assurance=authenticated_context`, and server establishment time. Aegis authenticates neither users nor OAuth tokens itself; it consumes identity established by a separately trusted authentication boundary. This is not IAM, SSO, OAuth, RBAC, or bearer-token verification.
+TrustedProxy provenance records `source=trusted_integration`, configured provider ID, `assurance=authenticated_context`, and server establishment time. Aegis authenticates neither users nor OAuth tokens itself; it consumes identity established by a separately trusted authentication boundary. This is not IAM, SSO, OAuth, RBAC, or bearer-token verification. A signed `workload_id` is a binding to that intake claim, not live attestation of remote workload state or undeclared downstream components.
 
 `Router.AuthorizeTrustedAction(intake.Authorization)` is the only normal Permit-issuance entry point. `Router` no longer exposes `AuthorizeAction/Authorize/Process` methods that accept a naked `models.Request`; in-process integrations must also call `intake.NewTrustedAuthorization(...)` or cross an intake implementation to create a sealed context. Process locality is not identity provenance. Server-owned fixtures may use only the synthetic entry point whose name and provenance explicitly say `simulated_demo`.
 
@@ -85,6 +85,7 @@ Permit claims include at least:
 
 - `jti/permit_id`, `signing_key_id`, and `request_id`;
 - `issuer`, `principal_id`, `agent_id`, and `workload_id`;
+- mandatory `executor_key_id` and `executor_key_thumbprint` for `execution` only;
 - delegated-authority digest/fingerprint;
 - `tool`, `capability`, `resource`, and `operation`;
 - `action_digest` and `policy_version`;
@@ -110,13 +111,15 @@ This guarantees only that one Permit is successfully consumed at most once; it d
 
 ## MCP adapter
 
-MCP is the focused MVP's only production-shaped adapter. It dispatches `tools/call` through the same immutable semantic registry used at authorization, verifies the signed profile/audience/action binding, consumes the Permit, forwards normalized arguments only to that profile's configured upstream, and records only necessary result metadata such as status and duration. Payment and workspace writes therefore share the same CanonicalAction, Permit issuer, verifier, replay store, and MCP enforcement boundary.
+MCP is the focused MVP's only production-shaped adapter. Before consuming an execution Permit, `tools/call` verifies a fresh Ed25519 `X-Aegis-Execution-Proof` against a server-registered workload public key. The proof binds Permit ID, action digest, `POST /mcp`, issuance time, and a nonce; its key ID and public-key thumbprint must match the signed Permit. Missing/invalid proofs, wrong workloads, stale proofs, and reused nonces fail before Permit consumption and before upstream. The proof is never forwarded or audited. The adapter then performs the existing action verification and atomic Permit consumption and forwards only normalized arguments.
+
+`WRONG_EXECUTOR` distinguishes a valid Permit presented without possession of its bound workload key from an invalid Permit signature. Both workload keys and proof-nonce replay state are currently process-local. Private-key theft/sharing, restart-wide replay, multi-replica coordination, hardware attestation, and software-integrity measurement remain outside the implementation.
 
 `payment.send/v1` accepts only positive integer minor-unit amount, allowlisted currency, and allowlisted recipient, with a per-currency limit. `workspace.write/v1` accepts only JSON-string `path` and `content`; the path is a logical relative `/`-separated identifier with no backslash, drive prefix, empty/`.`/`..`/`~` segment, edge slash, control character, or normalization. Sample limits are 1,024 bytes for path and 4 KiB for content. It forwards to a mock/logical upstream and never writes the host filesystem. Raw content participates in the digest but never enters normal audit.
 
 The adapter cannot “call first and alert later” after a failed verification, and cannot forward on `permit_id` alone. Upstream MCP TLS, authentication, tool side effects, and deployment bypass remain separate deployment responsibilities.
 
-For MCP `2026-07-28`, the current adapter validates `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` against the JSON-RPC body; rejects duplicate JSON keys and unbound tool `_meta`; and strips arbitrary headers/session context before rebuilding minimal transport/routing headers. It implements only the focused HTTP `POST` subset for `server/discover`, `tools/list`, and permit-gated `tools/call`; MRTR fields and schema-driven `Mcp-Param-*` fail closed for now, and full protocol conformance is not claimed.
+For MCP `2026-07-28`, the current adapter validates `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` against the JSON-RPC body; rejects duplicate JSON keys and unbound tool `_meta`; and strips arbitrary headers/session context before rebuilding minimal transport/routing headers. It implements only the focused HTTP `POST` subset for `server/discover`, `tools/list`, and permit-gated `tools/call`; Base64-wrapped `Mcp-Name`, MRTR fields, and schema-driven `Mcp-Param-*` fail closed for now, and full protocol conformance is not claimed. Discovery/list responses are relayed from upstream, so their descriptions, instructions, and other metadata remain untrusted Host inputs rather than Aegis-sanitized content.
 
 ## Policy, Risk, and obligations
 

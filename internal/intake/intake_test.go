@@ -18,6 +18,7 @@ func TestStaticIntakeOverwritesCallerSuppliedSecurityIdentity(t *testing.T) {
 		DelegatedAuthority: models.DelegatedAuthority{
 			CredentialFingerprint: strings.Repeat("a", 64), Scopes: []string{"code.read"}, Subject: "trusted-user",
 		},
+		WorkloadBinding: testWorkloadBinding(),
 	}
 	provider, err := intake.NewStatic(trusted, "test-auth-middleware")
 	if err != nil {
@@ -44,7 +45,7 @@ func TestStaticIntakeOverwritesCallerSuppliedSecurityIdentity(t *testing.T) {
 }
 
 func TestDevelopmentBodyIntakeIsLoopbackOnlyAndExplicitlyLowAssurance(t *testing.T) {
-	provider, err := intake.NewLoopbackDevelopment("local-test")
+	provider, err := intake.NewLoopbackDevelopment("local-test", testWorkloadBinding())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +66,9 @@ func TestDevelopmentBodyIntakeIsLoopbackOnlyAndExplicitlyLowAssurance(t *testing
 	}
 	if authorization.Provenance().Source != intake.SourceLocalDevelopment || authorization.Provenance().Assurance != intake.AssuranceDevelopmentOnly {
 		t.Fatalf("development provenance = %#v", authorization.Provenance())
+	}
+	if authorization.WorkloadBinding() != testWorkloadBinding() {
+		t.Fatalf("development workload binding = %#v", authorization.WorkloadBinding())
 	}
 }
 
@@ -106,6 +110,10 @@ func TestTrustedProxyOverwritesForgedBodyIdentityAndRecordsProvenance(t *testing
 	provenance := authorization.Provenance()
 	if provenance.Source != intake.SourceTrustedIntegration || provenance.ProviderID != "local-auth-gateway" || provenance.Assurance != intake.AssuranceAuthenticated || provenance.EstablishedAt.Before(before) || provenance.EstablishedAt.After(after) {
 		t.Fatalf("trusted proxy provenance = %#v", provenance)
+	}
+	binding := authorization.WorkloadBinding()
+	if binding.KeyID != "workload-key-01" || binding.PublicKeyThumbprint != "sha256:"+strings.Repeat("e", 64) {
+		t.Fatalf("trusted workload binding = %#v", binding)
 	}
 }
 
@@ -155,6 +163,10 @@ func TestTrustedProxyFailsClosedOnMalformedTrustInput(t *testing.T) {
 		{"oversized identity", func(request *http.Request) { request.Header.Set(intake.HeaderWorkloadID, strings.Repeat("a", 129)) }},
 		{"control character", func(request *http.Request) { request.Header.Set(intake.HeaderAgentID, "finance\x01agent") }},
 		{"invalid fingerprint", func(request *http.Request) { request.Header.Set(intake.HeaderDelegationFingerprint, "Bearer secret") }},
+		{"missing workload key", func(request *http.Request) { request.Header.Del(intake.HeaderWorkloadKeyID) }},
+		{"uppercase workload thumbprint", func(request *http.Request) {
+			request.Header.Set(intake.HeaderWorkloadKeyThumbprint, "sha256:"+strings.Repeat("A", 64))
+		}},
 		{"empty scope", func(request *http.Request) {
 			request.Header.Set(intake.HeaderDelegatedScopes, "payment.transfer,,finance.read")
 		}},
@@ -206,4 +218,10 @@ func setTrustedProxyHeaders(header http.Header) {
 	header.Set(intake.HeaderWorkloadID, "finance-workload-v1")
 	header.Set(intake.HeaderDelegatedScopes, "payment.transfer")
 	header.Set(intake.HeaderDelegationFingerprint, strings.Repeat("b", 64))
+	header.Set(intake.HeaderWorkloadKeyID, "workload-key-01")
+	header.Set(intake.HeaderWorkloadKeyThumbprint, "sha256:"+strings.Repeat("e", 64))
+}
+
+func testWorkloadBinding() intake.WorkloadBinding {
+	return intake.WorkloadBinding{KeyID: "workload-key-01", PublicKeyThumbprint: "sha256:" + strings.Repeat("e", 64)}
 }

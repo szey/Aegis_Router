@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,17 +19,22 @@ import (
 	"agent-governance-gateway/internal/adapters/mcp"
 	"agent-governance-gateway/internal/audit"
 	"agent-governance-gateway/internal/config"
+	"agent-governance-gateway/internal/executionproof"
 	"agent-governance-gateway/internal/intake"
 	"agent-governance-gateway/internal/models"
 	"agent-governance-gateway/internal/router"
 	"agent-governance-gateway/internal/semanticaction"
 )
 
+const testWorkloadKeyID = "mcp-test-workload-key"
+
+var proofNonce atomic.Uint64
+
 func TestValidPermitInvokesMCPUpstreamExactlyOnceAndAuditsReceipt(t *testing.T) {
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		calls.Add(1)
-		if req.Header.Get("Authorization") != "" || req.Header.Get(mcp.HeaderAgentID) != "" || req.Header.Get("Cookie") != "" || req.Header.Get("X-Upstream-Action") != "" || req.Header.Get("Content-Encoding") != "" {
+		if req.Header.Get("Authorization") != "" || req.Header.Get(mcp.HeaderExecutionProof) != "" || req.Header.Get(mcp.HeaderAgentID) != "" || req.Header.Get("Cookie") != "" || req.Header.Get("X-Upstream-Action") != "" || req.Header.Get("Content-Encoding") != "" {
 			t.Error("credential, binding, or unbound transport headers leaked to upstream")
 		}
 		if req.Header.Get(mcp.HeaderProtocolVersion) != mcp.ProtocolVersion20260728 || req.Header.Get(mcp.HeaderMethod) != "tools/call" || req.Header.Get(mcp.HeaderName) != "payment.send" {
@@ -58,7 +64,8 @@ func TestValidPermitInvokesMCPUpstreamExactlyOnceAndAuditsReceipt(t *testing.T) 
 	proxy := newProxy(t, r, upstream.URL, nil)
 
 	reordered := json.RawMessage(`{"recipient":"merchant-456","amount_minor":100,"currency":"USD"}`)
-	response := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, reordered)
+	proof := signExecutionProof(t, authorized, testWorkloadPrivateKey(), "valid-proof-no-audit-leak")
+	response := invokeWithProof(t, proxy, authorized.Permit.PermitToken, proof, action, action.Tool.Name, reordered)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
@@ -82,9 +89,138 @@ func TestValidPermitInvokesMCPUpstreamExactlyOnceAndAuditsReceipt(t *testing.T) 
 	if bytes.Contains(persisted, []byte(authorized.Permit.PermitToken)) {
 		t.Fatal("permit token leaked into audit")
 	}
+	if bytes.Contains(persisted, []byte(proof)) {
+		t.Fatal("execution proof leaked into audit")
+	}
 	if bytes.Contains(persisted, []byte("merchant-456")) {
 		t.Fatal("raw action arguments leaked into audit")
 	}
+}
+
+func TestWorkloadExecutionProofFailuresNeverConsumePermitOrReachUpstream(t *testing.T) {
+	type fixture struct {
+		r          *router.Router
+		store      *audit.Store
+		calls      *atomic.Int32
+		authorized models.ActionAuthorizationResponse
+		action     models.Request
+		proxy      *mcp.Proxy
+	}
+	setup := func(t *testing.T) fixture {
+		t.Helper()
+		calls := &atomic.Int32{}
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls.Add(1)
+			_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{}}`)
+		}))
+		t.Cleanup(upstream.Close)
+		r, store, _ := testRouter(t)
+		action := validPaymentRequest()
+		authorized, err := authorizeAction(t, r, action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fixture{r: r, store: store, calls: calls, authorized: authorized, action: action, proxy: newProxy(t, r, upstream.URL, nil)}
+	}
+	assertIssued := func(t *testing.T, item fixture) {
+		t.Helper()
+		record, ok := item.r.GetPermit(item.authorized.Permit.PermitID)
+		if !ok || record.State != "ISSUED" || item.calls.Load() != 0 {
+			t.Fatalf("failed proof changed execution state: permit=%#v exists=%v upstream=%d", record, ok, item.calls.Load())
+		}
+	}
+
+	t.Run("missing proof", func(t *testing.T) {
+		item := setup(t)
+		response := invokeWithProof(t, item.proxy, item.authorized.Permit.PermitToken, "", item.action, item.action.Tool.Name, item.action.Action.Arguments)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "WRONG_EXECUTOR") {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		auditRecord, ok := item.store.Get(item.authorized.Decision.RequestID)
+		if !ok || auditRecord.FinalVerdict != "PERMIT_WRONG_EXECUTOR" || auditRecord.ExecutionReceipt == nil || auditRecord.ExecutionReceipt.VerificationOutcome != "WRONG_EXECUTOR" {
+			t.Fatalf("wrong executor audit=%#v exists=%v", auditRecord, ok)
+		}
+		assertIssued(t, item)
+	})
+
+	t.Run("another workload key", func(t *testing.T) {
+		item := setup(t)
+		seed := bytes.Repeat([]byte{0x5a}, ed25519.SeedSize)
+		otherPrivate := ed25519.NewKeyFromSeed(seed)
+		if err := item.r.RegisterWorkloadPublicKey("other-workload-key", otherPrivate.Public().(ed25519.PublicKey)); err != nil {
+			t.Fatal(err)
+		}
+		proof := signExecutionProofWithKey(t, item.authorized, "other-workload-key", otherPrivate, "other-workload-proof")
+		response := invokeWithProof(t, item.proxy, item.authorized.Permit.PermitToken, proof, item.action, item.action.Tool.Name, item.action.Action.Arguments)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "WRONG_EXECUTOR") {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertIssued(t, item)
+	})
+
+	t.Run("stale proof", func(t *testing.T) {
+		item := setup(t)
+		stale := item.authorized
+		stalePermit := *item.authorized.Permit
+		stalePermit.IssuedAt = stalePermit.IssuedAt.Add(-time.Minute)
+		stale.Permit = &stalePermit
+		proof := signExecutionProof(t, stale, testWorkloadPrivateKey(), "stale-proof")
+		response := invokeWithProof(t, item.proxy, item.authorized.Permit.PermitToken, proof, item.action, item.action.Tool.Name, item.action.Action.Arguments)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "WRONG_EXECUTOR") {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertIssued(t, item)
+	})
+
+	t.Run("proof copied to another permit", func(t *testing.T) {
+		item := setup(t)
+		other, err := authorizeAction(t, item.r, item.action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proof := signExecutionProof(t, item.authorized, testWorkloadPrivateKey(), "copied-permit-proof")
+		response := invokeWithProof(t, item.proxy, other.Permit.PermitToken, proof, item.action, item.action.Tool.Name, item.action.Action.Arguments)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "WRONG_EXECUTOR") {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		record, ok := item.r.GetPermit(other.Permit.PermitID)
+		if !ok || record.State != "ISSUED" || item.calls.Load() != 0 {
+			t.Fatalf("copied proof consumed target Permit: %#v exists=%v calls=%d", record, ok, item.calls.Load())
+		}
+	})
+
+	t.Run("proof copied to another normalized action", func(t *testing.T) {
+		item := setup(t)
+		proof := signExecutionProof(t, item.authorized, testWorkloadPrivateKey(), "copied-action-proof")
+		mutated := json.RawMessage(`{"amount_minor":101,"currency":"USD","recipient":"merchant-456"}`)
+		response := invokeWithProof(t, item.proxy, item.authorized.Permit.PermitToken, proof, item.action, item.action.Tool.Name, mutated)
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "ACTION_MISMATCH") {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		assertIssued(t, item)
+	})
+
+	t.Run("reused nonce across permits", func(t *testing.T) {
+		item := setup(t)
+		firstProof := signExecutionProof(t, item.authorized, testWorkloadPrivateKey(), "shared-proof-nonce")
+		first := invokeWithProof(t, item.proxy, item.authorized.Permit.PermitToken, firstProof, item.action, item.action.Tool.Name, item.action.Action.Arguments)
+		if first.Code != http.StatusOK || item.calls.Load() != 1 {
+			t.Fatalf("first status=%d calls=%d body=%s", first.Code, item.calls.Load(), first.Body.String())
+		}
+		secondAuthorization, err := authorizeAction(t, item.r, item.action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		secondProof := signExecutionProof(t, secondAuthorization, testWorkloadPrivateKey(), "shared-proof-nonce")
+		second := invokeWithProof(t, item.proxy, secondAuthorization.Permit.PermitToken, secondProof, item.action, item.action.Tool.Name, item.action.Action.Arguments)
+		if second.Code != http.StatusForbidden || !strings.Contains(second.Body.String(), "WRONG_EXECUTOR") || item.calls.Load() != 1 {
+			t.Fatalf("second status=%d calls=%d body=%s", second.Code, item.calls.Load(), second.Body.String())
+		}
+		record, ok := item.r.GetPermit(secondAuthorization.Permit.PermitID)
+		if !ok || record.State != "ISSUED" {
+			t.Fatalf("nonce replay consumed second Permit: %#v exists=%v", record, ok)
+		}
+	})
 }
 
 func TestWorkspaceWriteV1TrustedPermitInvokesOnlyItsConfiguredUpstream(t *testing.T) {
@@ -123,7 +259,7 @@ func TestWorkspaceWriteV1TrustedPermitInvokesOnlyItsConfiguredUpstream(t *testin
 	if authorized.Permit == nil || authorized.Permit.ProfileID != "workspace.write/v1" || authorized.Permit.Audience != "mcp://local-workspace-sandbox" {
 		t.Fatalf("workspace Permit missing server-owned bindings: %#v", authorized.Permit)
 	}
-	response := invoke(t, proxy, authorized.Permit.PermitToken, action, "workspace.write", json.RawMessage(`{"path":"reports/result.txt","content":"`+rawContentMarker+`"}`))
+	response := invoke(t, proxy, authorized, action, "workspace.write", json.RawMessage(`{"path":"reports/result.txt","content":"`+rawContentMarker+`"}`))
 	if response.Code != http.StatusOK || workspaceCalls.Load() != 1 || paymentCalls.Load() != 0 {
 		t.Fatalf("status=%d workspace=%d payment=%d body=%s", response.Code, workspaceCalls.Load(), paymentCalls.Load(), response.Body.String())
 	}
@@ -172,7 +308,7 @@ func TestWorkspaceWriteV1MutationAndReplayFailBeforeUpstream(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response := invoke(t, proxy, authorized.Permit.PermitToken, action, "workspace.write", mutation.raw)
+			response := invoke(t, proxy, authorized, action, "workspace.write", mutation.raw)
 			if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "ACTION_MISMATCH") || workspaceCalls.Load() != 0 {
 				t.Fatalf("status=%d calls=%d body=%s", response.Code, workspaceCalls.Load(), response.Body.String())
 			}
@@ -198,8 +334,8 @@ func TestWorkspaceWriteV1MutationAndReplayFailBeforeUpstream(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		first := invoke(t, proxy, authorized.Permit.PermitToken, action, "workspace.write", action.Action.Arguments)
-		second := invoke(t, proxy, authorized.Permit.PermitToken, action, "workspace.write", action.Action.Arguments)
+		first := invoke(t, proxy, authorized, action, "workspace.write", action.Action.Arguments)
+		second := invoke(t, proxy, authorized, action, "workspace.write", action.Action.Arguments)
 		if first.Code != http.StatusOK || second.Code != http.StatusForbidden || !strings.Contains(second.Body.String(), "REPLAYED") || workspaceCalls.Load() != 1 {
 			t.Fatalf("first=%d second=%d calls=%d second body=%s", first.Code, second.Code, workspaceCalls.Load(), second.Body.String())
 		}
@@ -235,13 +371,13 @@ func TestCrossProfilePermitsNeverReachEitherUpstream(t *testing.T) {
 	paymentIdentityWorkspaceAction.Principal = payment.Principal
 	paymentIdentityWorkspaceAction.Agent = payment.Agent
 	paymentIdentityWorkspaceAction.Authority = payment.Authority
-	first := invoke(t, proxy, paymentAuthorized.Permit.PermitToken, paymentIdentityWorkspaceAction, "workspace.write", workspace.Action.Arguments)
+	first := invoke(t, proxy, paymentAuthorized, paymentIdentityWorkspaceAction, "workspace.write", workspace.Action.Arguments)
 
 	workspaceIdentityPaymentAction := payment
 	workspaceIdentityPaymentAction.Principal = workspace.Principal
 	workspaceIdentityPaymentAction.Agent = workspace.Agent
 	workspaceIdentityPaymentAction.Authority = workspace.Authority
-	second := invoke(t, proxy, workspaceAuthorized.Permit.PermitToken, workspaceIdentityPaymentAction, "payment.send", payment.Action.Arguments)
+	second := invoke(t, proxy, workspaceAuthorized, workspaceIdentityPaymentAction, "payment.send", payment.Action.Arguments)
 	if first.Code != http.StatusForbidden || second.Code != http.StatusForbidden ||
 		!strings.Contains(first.Body.String(), "WRONG_TOOL") || !strings.Contains(second.Body.String(), "WRONG_TOOL") ||
 		paymentCalls.Load() != 0 || workspaceCalls.Load() != 0 {
@@ -279,7 +415,7 @@ func TestActionMutationNeverInvokesMCPUpstream(t *testing.T) {
 				t.Fatal(err)
 			}
 			proxy := newProxy(t, r, upstream.URL, nil)
-			response := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, mutation.raw)
+			response := invoke(t, proxy, authorized, action, action.Tool.Name, mutation.raw)
 			if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "ACTION_MISMATCH") || calls.Load() != 0 {
 				t.Fatalf("status=%d calls=%d body=%s", response.Code, calls.Load(), response.Body.String())
 			}
@@ -308,7 +444,11 @@ func TestInvalidSignatureNeverInvokesMCPUpstream(t *testing.T) {
 	}
 	token = token[:len(token)-1] + last
 	proxy := newProxy(t, r, upstream.URL, nil)
-	response := invoke(t, proxy, token, action, action.Tool.Name, action.Action.Arguments)
+	tampered := authorized
+	tamperedPermit := *authorized.Permit
+	tamperedPermit.PermitToken = token
+	tampered.Permit = &tamperedPermit
+	response := invoke(t, proxy, tampered, action, action.Tool.Name, action.Action.Arguments)
 	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "INVALID_SIGNATURE") {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
@@ -336,13 +476,17 @@ func TestSimulationPermitNeverInvokesMCPUpstream(t *testing.T) {
 	}))
 	defer upstream.Close()
 	r, store, _ := testRouter(t)
+	if err := r.RegisterWorkloadPublicKey(testWorkloadKeyID, testWorkloadPrivateKey().Public().(ed25519.PublicKey)); err != nil {
+		t.Fatal(err)
+	}
 	action := validPaymentRequest()
 	authorized, err := r.AuthorizeSyntheticDemoAction(action, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	proxy := newProxy(t, r, upstream.URL, nil)
-	response := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+	proof := signExecutionProof(t, authorized, testWorkloadPrivateKey(), fmt.Sprintf("nonce-%d", proofNonce.Add(1)))
+	response := invokeWithProof(t, proxy, authorized.Permit.PermitToken, proof, action, action.Tool.Name, action.Action.Arguments)
 	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "WRONG_PERMIT_CLASS") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -396,7 +540,7 @@ func TestAllBoundPermitFailuresNeverInvokeMCPUpstream(t *testing.T) {
 			tool := actual.Tool.Name
 			test.mutate(&actual, &tool)
 			proxy := newProxy(t, r, upstream.URL, nil)
-			response := invoke(t, proxy, authorized.Permit.PermitToken, actual, tool, actual.Action.Arguments)
+			response := invoke(t, proxy, authorized, actual, tool, actual.Action.Arguments)
 			if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), test.outcome) {
 				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 			}
@@ -419,10 +563,10 @@ func TestReplayExpiredAndRevokedPermitsNeverAddAnUpstreamCall(t *testing.T) {
 		action := validPaymentRequest()
 		authorized, _ := authorizeAction(t, r, action)
 		proxy := newProxy(t, r, upstream.URL, nil)
-		if first := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments); first.Code != http.StatusOK {
+		if first := invoke(t, proxy, authorized, action, action.Tool.Name, action.Action.Arguments); first.Code != http.StatusOK {
 			t.Fatalf("first status = %d, body = %s", first.Code, first.Body.String())
 		}
-		second := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+		second := invoke(t, proxy, authorized, action, action.Tool.Name, action.Action.Arguments)
 		if second.Code != http.StatusForbidden || !strings.Contains(second.Body.String(), "REPLAYED") {
 			t.Fatalf("second status = %d, body = %s", second.Code, second.Body.String())
 		}
@@ -453,7 +597,7 @@ func TestReplayExpiredAndRevokedPermitsNeverAddAnUpstreamCall(t *testing.T) {
 		authorized, _ := authorizeAction(t, r, action)
 		current = authorized.Permit.ExpiresAt
 		proxy := newProxy(t, r, upstream.URL, nil)
-		response := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+		response := invoke(t, proxy, authorized, action, action.Tool.Name, action.Action.Arguments)
 		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "EXPIRED") || calls.Load() != 0 {
 			t.Fatalf("status=%d calls=%d body=%s", response.Code, calls.Load(), response.Body.String())
 		}
@@ -473,7 +617,7 @@ func TestReplayExpiredAndRevokedPermitsNeverAddAnUpstreamCall(t *testing.T) {
 			t.Fatal(err)
 		}
 		proxy := newProxy(t, r, upstream.URL, nil)
-		response := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+		response := invoke(t, proxy, authorized, action, action.Tool.Name, action.Action.Arguments)
 		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "REVOKED") || calls.Load() != 0 {
 			t.Fatalf("status=%d calls=%d body=%s", response.Code, calls.Load(), response.Body.String())
 		}
@@ -498,7 +642,7 @@ func TestFailedUpstreamDoesNotRestorePermitAndRetryRequiresNewAuthorization(t *t
 		t.Fatal(err)
 	}
 	proxy := newProxy(t, r, upstream.URL, nil)
-	failed := invoke(t, proxy, firstAuthorization.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+	failed := invoke(t, proxy, firstAuthorization, action, action.Tool.Name, action.Action.Arguments)
 	if failed.Code != http.StatusServiceUnavailable || calls.Load() != 1 {
 		t.Fatalf("failed attempt status=%d calls=%d body=%s", failed.Code, calls.Load(), failed.Body.String())
 	}
@@ -511,7 +655,7 @@ func TestFailedUpstreamDoesNotRestorePermitAndRetryRequiresNewAuthorization(t *t
 		t.Fatalf("failed execution receipt = %#v", auditRecord)
 	}
 
-	replayed := invoke(t, proxy, firstAuthorization.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+	replayed := invoke(t, proxy, firstAuthorization, action, action.Tool.Name, action.Action.Arguments)
 	if replayed.Code != http.StatusForbidden || !strings.Contains(replayed.Body.String(), "REPLAYED") || calls.Load() != 1 {
 		t.Fatalf("reused failed-attempt permit status=%d calls=%d body=%s", replayed.Code, calls.Load(), replayed.Body.String())
 	}
@@ -523,7 +667,7 @@ func TestFailedUpstreamDoesNotRestorePermitAndRetryRequiresNewAuthorization(t *t
 	if secondAuthorization.Permit.PermitID == firstAuthorization.Permit.PermitID {
 		t.Fatal("retry authorization reused the prior permit id")
 	}
-	succeeded := invoke(t, proxy, secondAuthorization.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+	succeeded := invoke(t, proxy, secondAuthorization, action, action.Tool.Name, action.Action.Arguments)
 	if succeeded.Code != http.StatusOK || calls.Load() != 2 {
 		t.Fatalf("newly authorized retry status=%d calls=%d body=%s", succeeded.Code, calls.Load(), succeeded.Body.String())
 	}
@@ -547,7 +691,7 @@ func TestTimedOutUpstreamDoesNotRestoreConsumedPermit(t *testing.T) {
 		t.Fatal(err)
 	}
 	proxy := newProxy(t, r, upstream.URL, &http.Client{Timeout: 20 * time.Millisecond})
-	failed := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+	failed := invoke(t, proxy, authorized, action, action.Tool.Name, action.Action.Arguments)
 	if failed.Code != http.StatusBadGateway || calls.Load() != 1 {
 		t.Fatalf("timeout status=%d calls=%d body=%s", failed.Code, calls.Load(), failed.Body.String())
 	}
@@ -559,7 +703,7 @@ func TestTimedOutUpstreamDoesNotRestoreConsumedPermit(t *testing.T) {
 	if auditRecord.ExecutionReceipt == nil || !auditRecord.ExecutionReceipt.UpstreamAttempted || auditRecord.ExecutionReceipt.ExecutionOutcome != "failed" {
 		t.Fatalf("timeout execution receipt = %#v", auditRecord.ExecutionReceipt)
 	}
-	replayed := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+	replayed := invoke(t, proxy, authorized, action, action.Tool.Name, action.Action.Arguments)
 	if replayed.Code != http.StatusForbidden || !strings.Contains(replayed.Body.String(), "REPLAYED") || calls.Load() != 1 {
 		t.Fatalf("timeout replay status=%d calls=%d body=%s", replayed.Code, calls.Load(), replayed.Body.String())
 	}
@@ -588,7 +732,7 @@ func TestConcurrentMCPReplayInvokesUpstreamExactlyOnce(t *testing.T) {
 		go func() {
 			ready.Done()
 			<-start
-			responses <- invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+			responses <- invoke(t, proxy, authorized, action, action.Tool.Name, action.Action.Arguments)
 		}()
 	}
 	ready.Wait()
@@ -630,7 +774,7 @@ func TestUnmappedMCPToolFailsClosedBeforePermitConsumption(t *testing.T) {
 	}
 	action := configReadRequest()
 	proxy := newProxy(t, r, upstream.URL, nil)
-	response := invoke(t, proxy, authorized.Permit.PermitToken, action, action.Tool.Name, action.Action.Arguments)
+	response := invoke(t, proxy, authorized, action, action.Tool.Name, action.Action.Arguments)
 	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "SEMANTIC_TOOL_UNMAPPED") || calls.Load() != 0 {
 		t.Fatalf("status=%d calls=%d body=%s", response.Code, calls.Load(), response.Body.String())
 	}
@@ -714,7 +858,13 @@ func TestModernServerDiscoverPassesThroughWithoutPermit(t *testing.T) {
 	}
 }
 
-func invoke(t *testing.T, handler http.Handler, token string, action models.Request, tool string, arguments json.RawMessage) *httptest.ResponseRecorder {
+func invoke(t *testing.T, handler http.Handler, authorized models.ActionAuthorizationResponse, action models.Request, tool string, arguments json.RawMessage) *httptest.ResponseRecorder {
+	t.Helper()
+	proof := signExecutionProof(t, authorized, testWorkloadPrivateKey(), fmt.Sprintf("nonce-%d", proofNonce.Add(1)))
+	return invokeWithProof(t, handler, authorized.Permit.PermitToken, proof, action, tool, arguments)
+}
+
+func invokeWithProof(t *testing.T, handler http.Handler, token, proof string, action models.Request, tool string, arguments json.RawMessage) *httptest.ResponseRecorder {
 	t.Helper()
 	body := modernToolCallBody(t, tool, arguments)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
@@ -724,6 +874,9 @@ func invoke(t *testing.T, handler http.Handler, token string, action models.Requ
 	req.Header.Set("Content-Encoding", "gzip")
 	setModernHeaders(req.Header, "tools/call", tool)
 	req.Header.Set("Authorization", "AegisPermit "+token)
+	if proof != "" {
+		req.Header.Set(mcp.HeaderExecutionProof, proof)
+	}
 	req.Header.Set(mcp.HeaderPrincipalID, action.Principal.PrincipalID)
 	req.Header.Set(mcp.HeaderAgentID, action.Agent.AgentID)
 	req.Header.Set(mcp.HeaderWorkloadID, action.Agent.WorkloadID)
@@ -740,6 +893,43 @@ func invoke(t *testing.T, handler http.Handler, token string, action models.Requ
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
 	return response
+}
+
+func signExecutionProof(t *testing.T, authorized models.ActionAuthorizationResponse, privateKey ed25519.PrivateKey, nonce string) string {
+	return signExecutionProofWithKey(t, authorized, testWorkloadKeyID, privateKey, nonce)
+}
+
+func signExecutionProofWithKey(t *testing.T, authorized models.ActionAuthorizationResponse, keyID string, privateKey ed25519.PrivateKey, nonce string) string {
+	t.Helper()
+	if authorized.Permit == nil || authorized.Decision.AuthorizationEnvelope == nil {
+		t.Fatal("execution proof requires an issued Permit")
+	}
+	proof, err := executionproof.Sign(privateKey, keyID, executionproof.Claims{
+		PermitID: authorized.Permit.PermitID, ActionDigest: authorized.Decision.AuthorizationEnvelope.ActionDigest,
+		HTTPMethod: http.MethodPost, HTTPPath: "/mcp", IssuedAt: authorized.Permit.IssuedAt.Unix(), Nonce: nonce,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proof
+}
+
+func testWorkloadPrivateKey() ed25519.PrivateKey {
+	seed := make([]byte, ed25519.SeedSize)
+	for index := range seed {
+		seed[index] = byte(index + 1)
+	}
+	return ed25519.NewKeyFromSeed(seed)
+}
+
+func testWorkloadBinding(t *testing.T) intake.WorkloadBinding {
+	t.Helper()
+	privateKey := testWorkloadPrivateKey()
+	thumbprint, err := executionproof.Thumbprint(privateKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return intake.WorkloadBinding{KeyID: testWorkloadKeyID, PublicKeyThumbprint: thumbprint}
 }
 
 func modernToolCallBody(t *testing.T, tool string, arguments json.RawMessage) []byte {
@@ -767,9 +957,14 @@ func setModernHeaders(header http.Header, method, name string) {
 
 func authorizeAction(t *testing.T, r *router.Router, request models.Request) (models.ActionAuthorizationResponse, error) {
 	t.Helper()
+	privateKey := testWorkloadPrivateKey()
+	if err := r.RegisterWorkloadPublicKey(testWorkloadKeyID, privateKey.Public().(ed25519.PublicKey)); err != nil {
+		t.Fatal(err)
+	}
 	authorization, err := intake.NewTrustedAuthorization(request, intake.IdentityContext{
 		Principal: request.EffectivePrincipal(), Agent: request.EffectiveAgent(),
 		DelegatedAuthority: request.EffectiveAuthority(),
+		WorkloadBinding:    testWorkloadBinding(t),
 	}, "mcp-test-trusted-integration", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)

@@ -60,6 +60,7 @@ permit_id / jti      signing_key_id / kid
 permit_class         execution | simulation
 request_id           principal_id
 agent_id / workload_id
+executor_key_id / executor_key_thumbprint
 delegation_digest    tool / capability
 resource / operation action_digest
 profile_id / audience
@@ -77,9 +78,9 @@ Issuance and verification use a `KeyProvider` abstraction to obtain the current 
 
 ### Verification and replay defense
 
-The execution boundary validates signature, issuer, expiry, `permit_class`, principal/Agent/workload, tool, resource, operation, profile version, audience, and action digest, then atomically consumes the permit. Normal `VerifyAndConsume` and MCP accept only `execution`; the server-owned Demo verifier accepts only `simulation` and has no upstream-forwarding capability. Missing, unknown, or mismatched classes fail closed before consumption. Only an `execution` permit that returns `VERIFIED` may call the upstream tool. Failure outcomes cover invalid signature, invalid or wrong class, expiry, revocation, wrong binding, action mismatch, and replay. At most one of two concurrent consumption attempts for the same permit may succeed.
+The execution boundary validates signature, issuer, expiry, `permit_class`, principal/Agent/workload, tool, resource, operation, profile version, audience, and action digest, then atomically consumes the permit. Every `execution` Permit also carries mandatory signed `executor_key_id` and `executor_key_thumbprint` (`sha256:<64 lowercase hex>`) claims; `simulation` Permits carry neither. Normal `VerifyAndConsume` and MCP accept only `execution`; the server-owned Demo verifier accepts only `simulation`. Only an `execution` Permit that returns `VERIFIED` may call upstream. Failure outcomes include invalid signature/class, expiry, revocation, `WRONG_EXECUTOR`, action mismatch, and replay.
 
-`permit_class` is selected by the server entry point and covered by the signature; request callers cannot set or override it. Tokens issued before this claim was introduced are rejected as invalid and must be re-authorized and reissued. There is no compatibility branch that treats a missing class as `execution`.
+`permit_class` is selected by the server entry point and covered by the signature; request callers cannot set or override it. Old execution tokens without executor-key claims are invalid and must be re-authorized and reissued. No compatibility branch treats a missing class or missing workload-key binding as executable.
 
 The lifecycle is `ISSUED → CONSUMED`, or `ISSUED → EXPIRED/REVOKED`.
 
@@ -99,7 +100,8 @@ MCP client
   → normalize tools/call
   → authorize exact action
   → issue signed permit
-  → verify + consume immediately before forwarding
+  → verify fresh Ed25519 workload proof
+  → verify + consume permit immediately before forwarding
   → upstream MCP server
   → audit result metadata
 ```
@@ -109,12 +111,16 @@ Every verification failure must occur before the upstream `tools/call`. A `simul
 Configure a server-owned control upstream to mount permit-gated `POST /mcp`. `--mcp-upstream` must exactly match one compiled-in profile's configured `upstream_url`; protocol setup/list compatibility methods use that target, while each `tools/call` is sent to the upstream owned by its resolved profile. The `--allow-development-intake` flag below accepts body identity from loopback requests only and labels it `development_only`; it is not a production mode:
 
 ```bash
-go run ./cmd/server --allow-development-intake --mcp-upstream http://127.0.0.1:3001/mcp
+go run ./cmd/server --allow-development-intake \
+  --workload-public-key docs-demo=ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ \
+  --mcp-upstream http://127.0.0.1:3001/mcp
 ```
 
-`tools/call` uses `Authorization: AegisPermit <permit_token>` plus `X-Aegis-Principal-Id`, `X-Aegis-Agent-Id`, `X-Aegis-Workload-Id`, `X-Aegis-Capability`, `X-Aegis-Resource`, and `X-Aegis-Operation`; the delegation-fingerprint header is optional. Tool name and arguments come directly from JSON-RPC `params`, so headers cannot replace them. The Proxy strips the credential, every `X-Aegis-*` header, cookies, content encodings, session context, and arbitrary extension headers. It forwards only normalized JSON content negotiation plus MCP routing headers rebuilt from the validated body. `initialize`, `notifications/initialized`, `ping`, and `tools/list` pass through as compatibility protocol methods; other unsupported methods fail closed.
+`tools/call` uses `Authorization: AegisPermit <permit_token>` and exactly one `X-Aegis-Execution-Proof` header, plus the existing action-binding headers. The proof is an Ed25519-signed compact token binding `permit_id`, `action_digest`, `POST`, `/mcp`, issuance time, and a nonce. It must be fresh (30-second window with 5-second clock skew), signed by the registered workload key selected by its signed `kid`, and match the executor key signed into the Permit. Missing/invalid proofs, wrong workloads, and reused nonces return `WRONG_EXECUTOR` without consuming the Permit. The Proxy strips both credentials and every `X-Aegis-*` header; the proof is never forwarded upstream.
 
-For MCP `2026-07-28`, the Proxy also requires `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` to agree exactly with `params._meta` and the JSON-RPC body, then rebuilds forwarded routing headers from the validated body. Duplicate JSON keys are rejected before Permit verification. On `tools/call`, the only accepted `_meta` entry is the validated protocol version; unbound extension metadata is rejected. This is an intentionally narrow HTTP `POST` subset: `server/discover`, `tools/list`, and permit-gated `tools/call` are supported; full MCP conformance is not claimed. MRTR `inputResponses`/`requestState` and schema-aware `Mcp-Param-*` validation are not yet part of `CanonicalAction`, so they fail closed. The old `initialize` path remains compatibility-only when a modern version is not declared.
+For MCP `2026-07-28`, the Proxy also requires `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` to agree exactly with `params._meta` and the JSON-RPC body, then rebuilds forwarded routing headers from the validated body. Duplicate JSON keys are rejected before Permit verification. On `tools/call`, the only accepted `_meta` entry is the validated protocol version; unbound extension metadata is rejected. This is an intentionally narrow HTTP `POST` subset: `server/discover`, `tools/list`, and permit-gated `tools/call` are supported; full MCP conformance is not claimed. Base64-wrapped `Mcp-Name` values are not decoded in this subset and fail closed, including when the decoded value would equal a supported ASCII tool name. MRTR `inputResponses`/`requestState` and schema-aware `Mcp-Param-*` validation are not yet part of `CanonicalAction`, so they also fail closed. The old `initialize` path remains compatibility-only when a modern version is not declared.
+
+`server/discover` and `tools/list` responses are relayed from the configured upstream. Their descriptions, instructions, and other metadata remain untrusted upstream content: Aegis does not sanitize them or make them safe for insertion into a system prompt. The Host must isolate and review that content; any resulting real `tools/call` still has to pass the independent Policy, semantic profile, and Execution Permit boundary.
 
 ### Exactly two compiled-in semantic actions
 
@@ -146,7 +152,8 @@ Run the authorization examples from the repository root. Keep the server in term
 
 ```bash
 # Terminal 1
-go run ./cmd/server --allow-development-intake
+go run ./cmd/server --allow-development-intake \
+  --workload-public-key docs-demo=ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ
 
 # Terminal 2
 curl -sS -H "Content-Type: application/json" --data-binary @docs/examples/payment-send-valid.json http://127.0.0.1:8080/api/actions/authorize
@@ -182,22 +189,23 @@ The model can represent `REQUIRES_APPROVAL`, but this release has no supported a
 The standalone server selects exactly one identity-provenance mode:
 
 1. **RejectAll** — secure default. Without an explicit intake configuration, HTTP authorization fails closed.
-2. **LoopbackDevelopment** — enabled only by `--allow-development-intake`. It accepts body identity only from a loopback direct peer and records assurance `development_only`.
+2. **LoopbackDevelopment** — enabled only by `--allow-development-intake`. It accepts body identity only from a loopback direct peer and records assurance `development_only`; startup requires exactly one separately configured workload public key, never a body field.
 3. **TrustedProxy** — accepts identity headers from a separately authenticated reverse proxy only when the direct TCP peer in `request.RemoteAddr` belongs to one of the explicitly configured trusted CIDRs. It records `source=trusted_integration`, the configured provider ID, `assurance=authenticated_context`, and the server establishment time.
 
-TrustedProxy uses only this explicit header contract: `X-Aegis-Authenticated-Principal`, `X-Aegis-Agent-Id`, `X-Aegis-Workload-Id`, `X-Aegis-Delegated-Scopes`, and `X-Aegis-Delegation-Fingerprint`. The current focused contract represents the authenticated principal as type `human`. Identity labels must be exact 1–128 byte metadata identifiers. Scopes use one comma-separated header; optional SP/HTAB around commas is removed, empty or duplicate scopes are rejected, and accepted scopes are sorted. The delegation fingerprint must be exactly 64 hexadecimal SHA-256 characters—not a bearer token, API key, cookie, password, or `sha256:`-prefixed value.
+TrustedProxy uses only this explicit header contract: `X-Aegis-Authenticated-Principal`, `X-Aegis-Agent-Id`, `X-Aegis-Workload-Id`, `X-Aegis-Delegated-Scopes`, `X-Aegis-Delegation-Fingerprint`, `X-Aegis-Workload-Key-Id`, and `X-Aegis-Workload-Key-Thumbprint`. The last two form `WorkloadBinding` and must come from authenticated infrastructure context, never the authorization JSON body. The thumbprint is exactly `sha256:` plus 64 lowercase hexadecimal characters. Other identity labels remain exact 1–128 byte metadata identifiers; the delegation fingerprint remains an unprefixed 64-hex digest.
 
 Trust is based exclusively on the direct peer. `X-Forwarded-For`, `Forwarded`, and `X-Real-IP` are never used to decide whether the sender is trusted. TrustedProxy then overwrites principal, Agent, workload, and delegated authority from the JSON proposal before Policy, Permit issuance, or audit. It never falls back to body identity after a trust error.
 
 ```bash
 go run ./cmd/server \
   --trusted-proxy-cidr 127.0.0.1/32 \
-  --trusted-proxy-provider-id local-auth-gateway
+  --trusted-proxy-provider-id local-auth-gateway \
+  --workload-public-key finance-workload-key=<unpadded-base64url-Ed25519-public-key>
 ```
 
 Repeat `--trusted-proxy-cidr` to allow additional IPv4 or IPv6 direct peers. CIDR and provider ID must be configured together. TrustedProxy configuration cannot coexist with `--allow-development-intake`; ambiguous or partial configuration stops server startup.
 
-**Aegis authenticates neither users nor OAuth tokens itself.** It consumes identity established by a separately trusted authentication boundary. TrustedProxy is a narrow provenance adapter, not an IAM, SSO, OAuth, or RBAC platform; transport protection and authenticated-proxy operation remain deployment responsibilities.
+**Aegis authenticates neither users nor OAuth tokens itself.** Proof of possession demonstrates control of the registered private key for one fresh MCP request; it is not hardware attestation, a software-integrity measurement, or proof that undeclared downstream components are absent. A stolen or shared workload key defeats this binding.
 
 Legacy flat request compatibility is **not execution-Permit eligible**. `Router.AuthorizeTrustedAction` requires structured principal, Agent/workload, delegated authority, tool, and action context even when an intake successfully authenticated and sealed the request. `allow_legacy_flat_requests` only preserves deprecated Policy/compatibility interpretation outside execution-Permit issuance; it never authorizes identity degradation into `user_id`, `agent_id`, or `token_scopes`, and it cannot produce an executable Permit.
 
@@ -253,7 +261,7 @@ Go 1.26 is required. Node.js is needed only when changing the TypeScript fronten
 go run ./cmd/server
 ```
 
-Open [http://localhost:8080](http://localhost:8080). This runs server-owned Demos, while HTTP authorization fails closed in RejectAll mode. Add `--allow-development-intake` only for local API/MCP development, or configure both trusted-proxy flags behind a separately authenticated proxy. The two modes cannot coexist. You may also run `docker compose up --build`. For MCP enforcement, also add `--mcp-upstream <absolute-http(s)-url>` and follow the [pilot protocol](docs/experiments/enterprise-agent-pilot.md) with a harmless controlled upstream first. Do not connect production tools or credentials directly.
+Open [http://localhost:8080](http://localhost:8080). This runs server-owned Demos, while HTTP authorization fails closed in RejectAll mode. Local execution development additionally needs `--allow-development-intake` and exactly one `--workload-public-key <kid>=<unpadded-base64url-Ed25519-public-key>`; trusted-proxy mode may register multiple keys by repeating the latter flag. For MCP enforcement, also add `--mcp-upstream <absolute-http(s)-url>` and start with a harmless controlled upstream.
 
 ## Audit and evidence truth
 

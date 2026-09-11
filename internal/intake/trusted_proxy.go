@@ -18,6 +18,8 @@ const (
 	HeaderWorkloadID             = "X-Aegis-Workload-Id"
 	HeaderDelegatedScopes        = "X-Aegis-Delegated-Scopes"
 	HeaderDelegationFingerprint  = "X-Aegis-Delegation-Fingerprint"
+	HeaderWorkloadKeyID          = "X-Aegis-Workload-Key-Id"
+	HeaderWorkloadKeyThumbprint  = "X-Aegis-Workload-Key-Thumbprint"
 
 	maxIdentityHeaderBytes = 128
 	maxScopesHeaderBytes   = 4096
@@ -106,6 +108,18 @@ func (provider *TrustedProxy) Resolve(request *http.Request, proposal models.Req
 	if !fingerprintPattern.MatchString(fingerprint) {
 		return Authorization{}, fmt.Errorf("%w: %s must be a 64-character hexadecimal SHA-256 fingerprint", ErrTrustedContextRequired, HeaderDelegationFingerprint)
 	}
+	workloadKeyID, err := strictIdentityHeader(request.Header, HeaderWorkloadKeyID)
+	if err != nil {
+		return Authorization{}, err
+	}
+	workloadKeyThumbprint, err := singleHeader(request.Header, HeaderWorkloadKeyThumbprint, 71)
+	if err != nil {
+		return Authorization{}, err
+	}
+	workloadBinding := WorkloadBinding{KeyID: workloadKeyID, PublicKeyThumbprint: workloadKeyThumbprint}
+	if err := validateWorkloadBinding(workloadBinding); err != nil {
+		return Authorization{}, err
+	}
 
 	identity := IdentityContext{
 		Principal: models.PrincipalContext{PrincipalID: principalID, PrincipalType: "human"},
@@ -116,6 +130,7 @@ func (provider *TrustedProxy) Resolve(request *http.Request, proposal models.Req
 			Scopes:                scopes,
 			Subject:               principalID,
 		},
+		WorkloadBinding: workloadBinding,
 	}
 	return NewTrustedAuthorization(proposal, identity, provider.providerID, provider.clock())
 }

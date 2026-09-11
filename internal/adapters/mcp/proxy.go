@@ -29,6 +29,7 @@ const (
 	HeaderOperation             = "X-Aegis-Operation"
 	HeaderProfileID             = "X-Aegis-Profile-Id"
 	HeaderAudience              = "X-Aegis-Audience"
+	HeaderExecutionProof        = "X-Aegis-Execution-Proof"
 	HeaderProtocolVersion       = "MCP-Protocol-Version"
 	HeaderMethod                = "Mcp-Method"
 	HeaderName                  = "Mcp-Name"
@@ -40,6 +41,7 @@ const (
 )
 
 type Gate interface {
+	VerifyExecutionProof(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) (models.PermitVerification, error)
 	VerifyAndConsume(permitToken string, action canonicalaction.Action) (models.PermitVerification, error)
 	IngestRuntimeEvent(event models.RuntimeEvent) (models.RuntimeEventEvaluation, error)
 	CompleteVerifiedExecution(completion models.ExecutionCompletion) (models.AuditRecord, error)
@@ -194,6 +196,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	normalizedBody, err := normalizedToolCallBody(rpc, params, resolved.NormalizedArguments)
 	if err != nil {
 		writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not construct the normalized upstream request", nil)
+		return
+	}
+	proofToken := ""
+	if proofValues := req.Header.Values(HeaderExecutionProof); len(proofValues) == 1 {
+		proofToken = proofValues[0]
+	}
+	proofVerification, err := p.gate.VerifyExecutionProof(token, proofToken, action, req.Method, req.URL.Path)
+	if err != nil {
+		writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not record execution proof verification", nil)
+		return
+	}
+	if !proofVerification.Verified || proofVerification.Outcome != "VERIFIED" {
+		writeRPCError(w, http.StatusForbidden, rpc.ID, -32006, "Aegis workload execution proof rejected", map[string]string{
+			"verification_result": proofVerification.Outcome, "permit_id": proofVerification.PermitID,
+		})
 		return
 	}
 	// Consumption is the commit point and happens before the upstream side

@@ -282,9 +282,17 @@ func newFixtureWithClass(t *testing.T, ttl time.Duration, permitClass permit.Cla
 	if err != nil {
 		t.Fatal(err)
 	}
+	executorThumbprint := ""
+	executorKeyID := ""
+	if permitClass == permit.ClassExecution {
+		executorKeyID = "workload-key-01"
+		executorThumbprint = "sha256:" + strings.Repeat("e", 64)
+	}
 	issued, err := issuer.Issue(permit.IssueRequest{
 		PermitID: "p_fixture", PermitClass: permitClass, RequestID: "request-01", PrincipalID: action.PrincipalID,
 		AgentID: action.AgentID, WorkloadID: action.WorkloadID,
+		ExecutorKeyID:                 executorKeyID,
+		ExecutorKeyThumbprint:         executorThumbprint,
 		DelegatedAuthorityFingerprint: action.DelegatedAuthorityFingerprint,
 		Tool:                          action.Tool, Capability: action.Capability, Resource: action.Resource, Operation: action.Operation,
 		ProfileID: action.ProfileID, Audience: action.Audience,

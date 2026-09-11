@@ -200,6 +200,34 @@ func TestStoreExposesNoConsumedPermitRestoreOperation(t *testing.T) {
 	}
 }
 
+func TestPermitClassEnforcesExecutorKeyBinding(t *testing.T) {
+	_, privateKey := keyPair(t)
+	provider := staticProvider(t, privateKey)
+	store := permit.NewMemoryStore()
+	issuer, err := permit.NewIssuer("aegis-router", provider, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execution := issueRequest("p_missing_executor", time.Minute)
+	execution.ExecutorKeyID = ""
+	execution.ExecutorKeyThumbprint = ""
+	if _, err := issuer.Issue(execution); !errors.Is(err, permit.ErrInvalidClaims) {
+		t.Fatalf("execution without workload key binding error=%v", err)
+	}
+
+	simulation := issueRequest("p_simulation_executor", time.Minute)
+	simulation.PermitClass = permit.ClassSimulation
+	if _, err := issuer.Issue(simulation); !errors.Is(err, permit.ErrInvalidClaims) {
+		t.Fatalf("simulation with workload key binding error=%v", err)
+	}
+	simulation.ExecutorKeyID = ""
+	simulation.ExecutorKeyThumbprint = ""
+	if _, err := issuer.Issue(simulation); err != nil {
+		t.Fatalf("unbound simulation permit error=%v", err)
+	}
+}
+
 func keyPair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -222,6 +250,8 @@ func issueRequest(permitID string, ttl time.Duration) permit.IssueRequest {
 	return permit.IssueRequest{
 		PermitID: permitID, PermitClass: permit.ClassExecution, RequestID: "request-01", PrincipalID: "user-01",
 		AgentID: "finance-agent", WorkloadID: "finance-agent-v3",
+		ExecutorKeyID:                 "workload-key-01",
+		ExecutorKeyThumbprint:         "sha256:" + strings.Repeat("e", 64),
 		DelegatedAuthorityFingerprint: "sha256:" + strings.Repeat("a", 64),
 		Tool:                          "payment.send", Capability: "payment.transfer", Resource: "account-123", Operation: "transfer",
 		ProfileID: "payment.send/v1", Audience: "mcp://test-payment-upstream",
@@ -237,6 +267,8 @@ func claimsForStore(permitID string) permit.Claims {
 	return permit.Claims{
 		PermitID: permitID, SigningKeyID: testKeyID, PermitClass: request.PermitClass, RequestID: request.RequestID,
 		PrincipalID: request.PrincipalID, AgentID: request.AgentID, WorkloadID: request.WorkloadID,
+		ExecutorKeyID:                 request.ExecutorKeyID,
+		ExecutorKeyThumbprint:         request.ExecutorKeyThumbprint,
 		DelegatedAuthorityFingerprint: request.DelegatedAuthorityFingerprint,
 		Tool:                          request.Tool, Capability: request.Capability, Resource: request.Resource, Operation: request.Operation,
 		ProfileID: request.ProfileID, Audience: request.Audience,

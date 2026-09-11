@@ -1,6 +1,7 @@
 package router
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -123,7 +124,7 @@ func (r *Router) AuthorizeTrustedAction(authorization intake.Authorization) (mod
 	if !request.UsesStructuredContext() {
 		return models.ActionAuthorizationResponse{}, ErrStructuredExecutionContextRequired
 	}
-	return r.authorizeResolvedAction(request, authorization.Provenance(), permit.ClassExecution, 0)
+	return r.authorizeResolvedAction(request, authorization.Provenance(), authorization.WorkloadBinding(), permit.ClassExecution, 0)
 }
 
 // AuthorizeSyntheticDemoAction is restricted to server-owned fixtures. It
@@ -133,10 +134,10 @@ func (r *Router) AuthorizeSyntheticDemoAction(req models.Request, ttl time.Durat
 	return r.authorizeResolvedAction(req, models.AuthorizationContextProvenance{
 		Source: "server_owned_fixture", ProviderID: "aegis-demo-lab",
 		Assurance: "simulated_demo",
-	}, permit.ClassSimulation, ttl)
+	}, intake.WorkloadBinding{}, permit.ClassSimulation, ttl)
 }
 
-func (r *Router) authorizeResolvedAction(req models.Request, provenance models.AuthorizationContextProvenance, permitClass permit.Class, ttlOverride time.Duration) (models.ActionAuthorizationResponse, error) {
+func (r *Router) authorizeResolvedAction(req models.Request, provenance models.AuthorizationContextProvenance, workloadBinding intake.WorkloadBinding, permitClass permit.Class, ttlOverride time.Duration) (models.ActionAuthorizationResponse, error) {
 	if err := Validate(req); err != nil {
 		return models.ActionAuthorizationResponse{}, err
 	}
@@ -200,7 +201,7 @@ func (r *Router) authorizeResolvedAction(req models.Request, provenance models.A
 		}
 	}
 	if status == models.AuthorizationStatusAuthorized && policyDecision.Authorized && policyDecision.Grant != nil {
-		issued, issueErr := r.issuePermit(req, *policyDecision.Grant, obligations, resolvedActionOrDefault(resolvedAction, resolved, req, *policyDecision.Grant), actionDigest, started, permitClass, ttlOverride)
+		issued, issueErr := r.issuePermit(req, *policyDecision.Grant, obligations, resolvedActionOrDefault(resolvedAction, resolved, req, *policyDecision.Grant), actionDigest, started, workloadBinding, permitClass, ttlOverride)
 		if issueErr != nil {
 			return models.ActionAuthorizationResponse{}, issueErr
 		}
@@ -272,6 +273,23 @@ func (r *Router) VerifyAndConsume(permitToken string, action canonicalaction.Act
 	return r.verifyAndConsume(permitToken, action, permit.ClassExecution, models.RuntimeSourceGatewayEnforced)
 }
 
+// RegisterWorkloadPublicKey configures an Ed25519 executor key used for MCP
+// proof-of-possession checks. Registration is local and exposes no HTTP API.
+func (r *Router) RegisterWorkloadPublicKey(keyID string, publicKey ed25519.PublicKey) error {
+	return r.permitVerifier.RegisterWorkloadPublicKey(keyID, publicKey)
+}
+
+// VerifyExecutionProof authenticates the workload proof without consuming the
+// execution Permit. Failed proof checks are audited at the gateway boundary.
+func (r *Router) VerifyExecutionProof(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) (models.PermitVerification, error) {
+	result := r.permitVerifier.VerifyExecutionProof(permitToken, proofToken, action, httpMethod, httpPath)
+	verification := permitVerification(result, models.RuntimeSourceGatewayEnforced)
+	if result.Allowed() {
+		return verification, nil
+	}
+	return r.auditPermitVerification(result, models.RuntimeSourceGatewayEnforced, verification)
+}
+
 func (r *Router) VerifySyntheticDemo(permitToken string, action canonicalaction.Action) (models.PermitVerification, error) {
 	return r.verifyAndConsume(permitToken, action, permit.ClassSimulation, models.RuntimeSourceSimulatedDemo)
 }
@@ -283,6 +301,11 @@ func (r *Router) verifyAndConsume(permitToken string, action canonicalaction.Act
 	} else {
 		result = r.permitVerifier.VerifyAndConsume(permitToken, action)
 	}
+	verification := permitVerification(result, source)
+	return r.auditPermitVerification(result, source, verification)
+}
+
+func permitVerification(result verifier.Result, source models.RuntimeEventSource) models.PermitVerification {
 	verification := models.PermitVerification{
 		PermitID: result.PermitID, RequestID: result.RequestID, Outcome: string(result.Outcome),
 		Verified: result.Allowed(), State: string(result.State), VerifiedAt: result.VerifiedAt,
@@ -300,6 +323,10 @@ func (r *Router) verifyAndConsume(permitToken string, action canonicalaction.Act
 			EnhancedAuditRequired: result.Claims.Obligations.EnhancedAuditRequired,
 		}
 	}
+	return verification
+}
+
+func (r *Router) auditPermitVerification(result verifier.Result, source models.RuntimeEventSource, verification models.PermitVerification) (models.PermitVerification, error) {
 	if result.RequestID == "" {
 		attemptID, auditErr := r.auditUnboundVerificationFailure(result, source)
 		verification.RequestID = attemptID
@@ -481,6 +508,8 @@ func permitVerdict(outcome verifier.Outcome) string {
 		return "PERMIT_INVALID_SIGNATURE"
 	case verifier.OutcomeWrongPermitClass:
 		return "PERMIT_CLASS_MISMATCH"
+	case verifier.OutcomeWrongExecutor:
+		return "PERMIT_WRONG_EXECUTOR"
 	default:
 		return "PERMIT_REJECTED"
 	}
@@ -1019,7 +1048,7 @@ func executionAction(req models.Request) canonicalaction.Action {
 	}
 }
 
-func (r *Router) issuePermit(req models.Request, grant models.MatchedAuthorizationGrant, obligations models.ExecutionObligations, action canonicalaction.Action, actionDigest string, issuedAt time.Time, permitClass permit.Class, ttlOverride time.Duration) (permit.IssuedPermit, error) {
+func (r *Router) issuePermit(req models.Request, grant models.MatchedAuthorizationGrant, obligations models.ExecutionObligations, action canonicalaction.Action, actionDigest string, issuedAt time.Time, workloadBinding intake.WorkloadBinding, permitClass permit.Class, ttlOverride time.Duration) (permit.IssuedPermit, error) {
 	ttl := r.permitTTL
 	if ttlOverride > 0 && ttlOverride < ttl {
 		ttl = ttlOverride
@@ -1043,6 +1072,7 @@ func (r *Router) issuePermit(req models.Request, grant models.MatchedAuthorizati
 	issued, err := r.permitIssuer.Issue(permit.IssueRequest{
 		RequestID: req.RequestID, PermitClass: permitClass, PrincipalID: action.PrincipalID, AgentID: action.AgentID,
 		WorkloadID: action.WorkloadID, DelegatedAuthorityFingerprint: action.DelegatedAuthorityFingerprint,
+		ExecutorKeyID: workloadBinding.KeyID, ExecutorKeyThumbprint: workloadBinding.PublicKeyThumbprint,
 		Tool: action.Tool, Capability: action.Capability, Resource: action.Resource, Operation: action.Operation,
 		ProfileID: action.ProfileID, Audience: action.Audience,
 		ActionDigest: actionDigest, PolicyVersion: r.policyVersion, TTL: ttl,
@@ -1063,6 +1093,8 @@ func envelopeFor(issued permit.IssuedPermit, sessionID string, constraints model
 	return &models.AuthorizationEnvelope{
 		PermitID: claims.PermitID, SigningKeyID: claims.SigningKeyID, PermitClass: string(claims.PermitClass), RequestID: claims.RequestID, SessionID: sessionID,
 		PrincipalID: claims.PrincipalID, AgentID: claims.AgentID, WorkloadID: claims.WorkloadID,
+		ExecutorKeyID:                  claims.ExecutorKeyID,
+		ExecutorKeyThumbprint:          claims.ExecutorKeyThumbprint,
 		DelegatedCredentialFingerprint: claims.DelegatedAuthorityFingerprint,
 		AllowedCapability:              claims.Capability, AllowedTool: claims.Tool, AllowedResource: claims.Resource,
 		AllowedOperation: claims.Operation, AllowedOperations: []string{claims.Operation}, ProfileID: claims.ProfileID, Audience: claims.Audience,

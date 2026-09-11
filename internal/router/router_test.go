@@ -591,6 +591,7 @@ func trustedAuthorization(t *testing.T, request models.Request) intake.Authoriza
 	authorization, err := intake.NewTrustedAuthorization(request, intake.IdentityContext{
 		Principal: request.EffectivePrincipal(), Agent: request.EffectiveAgent(),
 		DelegatedAuthority: request.EffectiveAuthority(),
+		WorkloadBinding:    intake.WorkloadBinding{KeyID: "router-test-workload-key", PublicKeyThumbprint: "sha256:" + strings.Repeat("e", 64)},
 	}, "router-test-trusted-integration", time.Date(2026, 9, 3, 1, 59, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
@@ -610,6 +611,7 @@ func sealedLegacyAuthorization(t *testing.T, trustedWorkload string) intake.Auth
 		DelegatedAuthority: models.DelegatedAuthority{
 			CredentialFingerprint: strings.Repeat("b", 64), Scopes: []string{"payment.transfer"}, Subject: "user-01",
 		},
+		WorkloadBinding: intake.WorkloadBinding{KeyID: "router-test-workload-key", PublicKeyThumbprint: "sha256:" + strings.Repeat("e", 64)},
 	}, "router-test-trusted-integration", time.Date(2026, 9, 3, 1, 59, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
