@@ -1,14 +1,16 @@
-# Aegis Router
+# Aegis_Router
 
 English | [简体中文](README.zh-CN.md)
 
 **Execution Permits for AI Agent Actions**
 
-Aegis Router implements a framework-agnostic execution-permit model with a focused MCP enforcement path and server-owned semantic action profiles. Before a privileged tool action executes, Aegis validates the structured request and evaluates deterministic Policy eligibility. After a Policy grant, a server-owned semantic profile resolves the exact executable action; Aegis then issues a signed, short-lived, action-bound, single-use-by-default execution permit. The executor verifies and consumes that permit immediately before the real side effect.
+Aegis_Router implements a framework-agnostic execution-permit model with a focused MCP enforcement path and server-owned semantic action profiles. Before a privileged tool action executes, Aegis validates the structured request and evaluates deterministic Policy eligibility. After a Policy grant, a server-owned semantic profile resolves the exact executable action; Aegis then issues a signed, short-lived, action-bound, single-use-by-default execution permit. The executor verifies and consumes that permit immediately before the real side effect.
 
 If the Agent changes the tool, operation, resource, or security-relevant arguments after authorization, the permit no longer matches and the tool must not execute.
 
 > **The action that was authorized must be exactly the action that executes.**
+
+Aegis is not a sandbox, EDR, IAM system, Agent management platform, or enterprise Inventory product. The project and GitHub repository now share the **Aegis_Router** name: [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router).
 
 ## Core execution path
 

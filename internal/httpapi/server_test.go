@@ -15,17 +15,17 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"agent-governance-gateway/internal/adapters/mcp"
-	"agent-governance-gateway/internal/audit"
-	"agent-governance-gateway/internal/config"
-	"agent-governance-gateway/internal/discovery"
-	"agent-governance-gateway/internal/executionproof"
-	"agent-governance-gateway/internal/httpapi"
-	"agent-governance-gateway/internal/intake"
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/router"
-	"agent-governance-gateway/internal/scenario"
-	"agent-governance-gateway/internal/sessionaudit"
+	"github.com/szey/Aegis_Router/internal/adapters/mcp"
+	"github.com/szey/Aegis_Router/internal/audit"
+	"github.com/szey/Aegis_Router/internal/config"
+	"github.com/szey/Aegis_Router/internal/discovery"
+	"github.com/szey/Aegis_Router/internal/executionproof"
+	"github.com/szey/Aegis_Router/internal/httpapi"
+	"github.com/szey/Aegis_Router/internal/intake"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/router"
+	"github.com/szey/Aegis_Router/internal/scenario"
+	"github.com/szey/Aegis_Router/internal/sessionaudit"
 )
 
 const httpTestWorkloadKeyID = "http-test-workload-key"
@@ -854,7 +854,7 @@ func TestApprovedAgentRegistryCanBeManagedFromLocalUI(t *testing.T) {
 	body := bytes.NewBufferString(`{"name":"WorkBuddy","agent_type":"mcp","path_contains":".mcp.json","owner":"security"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/approved-agents", body)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-Governance-Admin", "local-ui")
+	req.Header.Set("X-Aegis-Admin", "local-ui")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
 	if response.Code != http.StatusOK {

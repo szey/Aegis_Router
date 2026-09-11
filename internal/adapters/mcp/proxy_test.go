@@ -16,14 +16,14 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/adapters/mcp"
-	"agent-governance-gateway/internal/audit"
-	"agent-governance-gateway/internal/config"
-	"agent-governance-gateway/internal/executionproof"
-	"agent-governance-gateway/internal/intake"
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/router"
-	"agent-governance-gateway/internal/semanticaction"
+	"github.com/szey/Aegis_Router/internal/adapters/mcp"
+	"github.com/szey/Aegis_Router/internal/audit"
+	"github.com/szey/Aegis_Router/internal/config"
+	"github.com/szey/Aegis_Router/internal/executionproof"
+	"github.com/szey/Aegis_Router/internal/intake"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/router"
+	"github.com/szey/Aegis_Router/internal/semanticaction"
 )
 
 const testWorkloadKeyID = "mcp-test-workload-key"

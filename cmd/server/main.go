@@ -11,16 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"agent-governance-gateway/internal/adapters/mcp"
-	"agent-governance-gateway/internal/audit"
-	"agent-governance-gateway/internal/config"
-	"agent-governance-gateway/internal/discovery"
-	"agent-governance-gateway/internal/executionproof"
-	"agent-governance-gateway/internal/httpapi"
-	"agent-governance-gateway/internal/intake"
-	"agent-governance-gateway/internal/router"
-	"agent-governance-gateway/internal/scenario"
-	"agent-governance-gateway/web"
+	"github.com/szey/Aegis_Router/internal/adapters/mcp"
+	"github.com/szey/Aegis_Router/internal/audit"
+	"github.com/szey/Aegis_Router/internal/config"
+	"github.com/szey/Aegis_Router/internal/discovery"
+	"github.com/szey/Aegis_Router/internal/executionproof"
+	"github.com/szey/Aegis_Router/internal/httpapi"
+	"github.com/szey/Aegis_Router/internal/intake"
+	"github.com/szey/Aegis_Router/internal/router"
+	"github.com/szey/Aegis_Router/internal/scenario"
+	"github.com/szey/Aegis_Router/web"
 )
 
 func main() {
@@ -114,7 +114,7 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	logger.Info("Aegis Router listening", "address", *addr, "mcp_enforcement", mcpHandler != nil, "experimental_inventory", *enableExperimentalInventory, "authorization_intake", authorizationIntakeMode)
+	logger.Info("Aegis_Router listening", "address", *addr, "mcp_enforcement", mcpHandler != nil, "experimental_inventory", *enableExperimentalInventory, "authorization_intake", authorizationIntakeMode)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)

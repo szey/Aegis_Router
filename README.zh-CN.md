@@ -1,16 +1,16 @@
-# Aegis Router
+# Aegis_Router
 
 [English](README.md) | 简体中文
 
 **AI Agent 动作的执行许可**
 
-Aegis Router 实现一套不绑定 Agent 框架的执行许可模型，并提供一个聚焦的 MCP 执行路径和服务端拥有的语义动作配置。特权工具动作执行前，Aegis 先验证结构化请求并进行确定性 Policy 资格判断；Policy 授权后，服务端拥有的语义配置才解析精确的可执行动作，随后 Aegis 签发短时、动作绑定、默认单次使用的签名执行许可。执行器在真实副作用发生前验证并消费该许可。
+Aegis_Router 实现一套不绑定 Agent 框架的执行许可模型，并提供一个聚焦的 MCP 执行路径和服务端拥有的语义动作配置。特权工具动作执行前，Aegis 先验证结构化请求并进行确定性 Policy 资格判断；Policy 授权后，服务端拥有的语义配置才解析精确的可执行动作，随后 Aegis 签发短时、动作绑定、默认单次使用的签名执行许可。执行器在真实副作用发生前验证并消费该许可。
 
 如果 Agent 在授权后改变工具、操作、资源或安全相关参数，许可不再匹配，工具不得执行。
 
 > **获得授权的动作，必须与实际执行的动作完全一致。**
 
-Aegis 不是沙箱、EDR、IAM、Agent 管理平台或企业 Inventory 产品。GitHub 仓库继续使用 [`szey/agent-governance-gateway`](https://github.com/szey/agent-governance-gateway) 名称，以避免迁移；产品名称为 **Aegis Router**。
+Aegis 不是沙箱、EDR、IAM、Agent 管理平台或企业 Inventory 产品。项目名称与 GitHub 仓库现统一为 **Aegis_Router**：[`szey/Aegis_Router`](https://github.com/szey/Aegis_Router)。
 
 ## 核心执行链
 

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"agent-governance-gateway/internal/canonicalaction"
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/semanticaction"
+	"github.com/szey/Aegis_Router/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/semanticaction"
 )
 
 const (

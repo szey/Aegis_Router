@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"agent-governance-gateway/internal/keyprovider"
+	"github.com/szey/Aegis_Router/internal/keyprovider"
 )
 
 const (

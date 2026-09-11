@@ -1,10 +1,10 @@
 services:
-  agent-governance-gateway:
+  aegis-router:
     build: .
     ports:
       - "8080:8080"
     volumes:
-      - agent-governance-audit:/app/data
+      - aegis-router-audit:/app/data
     read_only: true
     tmpfs:
       - /tmp
@@ -14,4 +14,4 @@ services:
       - ALL
 
 volumes:
-  agent-governance-audit:
+  aegis-router-audit:

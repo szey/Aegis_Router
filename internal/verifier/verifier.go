@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"time"
 
-	"agent-governance-gateway/internal/canonicalaction"
-	"agent-governance-gateway/internal/executionproof"
-	"agent-governance-gateway/internal/keyprovider"
-	"agent-governance-gateway/internal/permit"
+	"github.com/szey/Aegis_Router/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/executionproof"
+	"github.com/szey/Aegis_Router/internal/keyprovider"
+	"github.com/szey/Aegis_Router/internal/permit"
 )
 
 type Outcome string

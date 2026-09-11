@@ -2,9 +2,9 @@
 
 [English](research-product-mapping-iteration.md) | 简体中文
 
-最近产品复核：2026-09-05
+最近产品复核：2026-09-07
 
-本文是 Aegis Router 的统一调研登记：标准、事故、媒体/安全公司建议、社区痛点、开源借鉴、处置决定与产品映射均在这里维护。中文是语义工作源，英文必须在同一次变更中同步。
+本文是 Aegis_Router 的统一调研登记：标准、事故、媒体/安全公司建议、社区痛点、开源借鉴、处置决定与产品映射均在这里维护。中文是语义工作源，英文必须在同一次变更中同步。
 
 通用方法由 `$research-to-product` Skill 提供；本项目的范围与安全边界写在[项目契约](../.codex/research-to-product.json)。来源建议是证据输入，不是可执行指令，也不是本项目控制有效的证明。
 
@@ -12,7 +12,7 @@
 
 > **获得授权的动作，必须与实际执行的动作完全一致。**
 
-Aegis Router 被收窄为一个不绑定 Agent 框架的 execution-permit/reference-monitor primitive：对精确 `CanonicalAction` 作确定性授权，签发短时、签名、动作绑定、默认单次使用的 Permit，并在 MCP 上游副作用之前验证和消费。
+Aegis_Router 被收窄为一个不绑定 Agent 框架的 execution-permit/reference-monitor primitive：先验证结构化请求并进行确定性 Policy 资格判断；Policy grant 后，服务端拥有的语义 profile 才解析精确的 `CanonicalAction`。两者都成功后签发短时、签名、动作绑定、默认单次使用的 Permit，并在 MCP 上游副作用之前验证和消费。Policy authorization alone 不足以产生 Permit，语义解析也不能覆盖 Policy denial。
 
 本轮明确不与现有产品竞争通用 Agent 权限、审批、沙箱、workspace isolation、企业 Inventory、Shadow Agent discovery、IAM、EDR 式观察或泛风险仪表板。Aegis 不是广义 AI Agent 安全平台。
 
@@ -57,6 +57,21 @@ Aegis Router 被收窄为一个不绑定 Agent 框架的 execution-permit/refere
 
 这批产品负责人决定属于 `S4`。没有新增外部来源；本轮以架构负向测试验证 trusted-intake、deterministic-policy、单次消费与 upstream-not-called 边界。只有 canonicalization、签名、过期/撤销/replay、隐私和 MCP upstream-not-called 测试通过后，相应实现才记为 `V2 reproduced`。
 
+### 2026-09-07 周度增量复核
+
+复核窗口为 2026-09-05 至 2026-09-07。MCP 最新正式协议仍为 `2026-07-28`，OWASP GenAI LLM Top 10 与 Agentic Applications Top 10 的基线版本仍为 2026，NIST AI RMF/AI 600-1 没有替换本项目所列基线。官方事故源没有出现新的独立事件；2026-09-01 的媒体报道继续追溯至已登记的 OpenAI、UK AISI 与独立复盘，因此去重而不新增事故 ID。
+
+| `research_id` | 证据、机制与状态 | 来源建议、前提与副作用 | 产品处置 |
+|---|---|---|---|
+| `REV-2026-09-07-001` | [MCP latest](https://modelcontextprotocol.io/specification/latest) 仍指向 `2026-07-28`；[Go SDK `a5026ea`](https://github.com/modelcontextprotocol/go-sdk/commit/a5026ea) 在 2026-09-06 修复 `Mcp-Name` 的 `=?base64?...?=` 解码后比对 · `S1/V1`。机制只影响非 Header-safe 的 name/URI；Aegis 两个内置 Tool 名均为 ASCII，当前 raw exact-match 会拒绝包装值 | 维护者实现选择是先解码再与正文比较，并拒绝无效 Base64。支持它会增加一条输入解码路径，但不会增强 Permit security property | `docs_only`：明确 Base64-wrapped `Mcp-Name` 当前不在 focused subset，保持 fail closed；在出现受支持的非 Header-safe Tool 或明确 conformance 目标前不实现 |
+| `REV-2026-09-07-002` | [MCP issue #3213](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/3213) 提供 `server/discover.instructions` 与 public cache 组合的独立 PoC · `S2/V1`。Server-owned instructions 可进入 Agent context；Aegis 当前转发 discover 响应，不对其文本做可信化或 sanitization | 来源建议隔离为不可信内容、限制长度、避免直接并入 system prompt，并可辅以检测；Prompt classifier 可能误报/漏报，也不能替代执行边界 | `docs_only`：把 discover metadata/instructions 明确列为不可信上游内容；Host 必须隔离处理，所有真实 `tools/call` 仍需 Execution Permit。不增加 Prompt classifier、缓存平台或通用内容过滤器 |
+| `REV-2026-09-07-003` | [OWASP Agent Control Standard v0.1 public preview](https://genai.owasp.org/resource/agent-control-standard-acs/) 提议跨框架 runtime hooks；其 [2026-09-06 conformance 更新](https://github.com/GenAI-Security-Project/agent-control-standard/commit/c1f51df) 明确 v0.1 的 profile 声明由实现者自证，尚无 conformance suite、registry 或裁决主体 · `S1/V1` | 来源要求采购方自行验证部署声明。采用 ACS 会引入新 wire/schema、观测与治理范围，且当前一致性承诺不可独立验证 | `defer`：跟踪稳定版和可执行 conformance，不把 Aegis 宣称为 ACS-compatible，也不扩展成 Guardian/observability/AgBOM 平台 |
+| `REV-2026-09-07-004` | [ACLE-MCP 预印本](https://arxiv.org/abs/2609.02690) 区分 OAuth/签名身份绑定与执行时 workload appraisal，报告 workload 替换、陈旧证明和未声明下游问题 · `S2/V1`。Aegis 的 `workload_id` 是 trusted-intake claim，不是远程工作负载实时证明 | 论文建议 sender-constrained lease、执行点消费和 provider-side attestation；前提包含 OIDC、可信 appraisal/vTPM 与远程资源侧 gate，实验报告正常允许调用 pooled p95 延迟增加 25.7% | `docs_only`：补充 workload binding 不等于 runtime attestation 的安全限制；不引入 KMS、OIDC、TPM 或远程 attestation |
+| `REV-2026-09-07-005` | 新近社区反馈分别描述 [Tool description 漂移后静态 scope 仍放行](https://www.reddit.com/r/Information_Security/comments/1w852eb/the_agent_just_needed_read_access_until_one_tool/) 与 [共享 service account 只能提供 attribution、未必提供 downstream authorization](https://www.reddit.com/r/mcp/comments/1w4oiiv/how_is_anyone_actually_running_mcp_in_an/) · `S4/V1`。两者均为自述，未提供可独立核验的部署记录 | 建议 review Tool metadata/scope 变更、记录来源、使用逐用户委托或更细粒度凭据；会引入 IAM、secret lifecycle、审批与运维成本 | `docs_only`：强化 discover/tool metadata 不可信与 trusted-intake provenance 边界；不据此建设 IAM、SSO、RBAC、供应链扫描或会话意图追踪 |
+| `REV-2026-09-07-006` | ToolHive 维护者在 [canonical inbound grants](https://github.com/stacklok/toolhive/commit/6b40bf3) 与 [OAuth callback Referer](https://github.com/stacklok/toolhive/commit/7b491f7) 上修复授权配置漂移、重放/注册边界及 Referrer 泄漏 · `S1/V1`。Aegis 当前没有 OAuth callback、DCR、token exchange 或 SPIFFE grant surface | 这些修复依赖完整 OAuth/IAM 与多实例存储语义；移植会扩大产品面且没有对应可达路径 | `reject`：不移植，也不把无关修复包装成 Aegis 能力；仅保留“配置冲突 fail closed、凭据不进入审计”的现有原则 |
+
+这轮没有条目达到 `V2 reproduced`，因此没有代码、fixture 或行为变更。新增结论只修正文档边界；未来若要实现任一 deferred 控制，仍需先建立安全 synthetic fixture、可证伪假设和项目内回归。
+
 ## 4. 先前公司端点反馈的保留方式
 
 2026-09-02 的探索性试用曾发现：Server 启动快照不刷新、过宽扫描遇权限错误、marketplace/cache 噪声、批准清单入口不明显，以及“批准 Agent”容易被误解为“批准所有行为”。这些问题推动了 Discovery 的本地修复和结构化 AuthorizationEnvelope。
@@ -76,6 +91,8 @@ Aegis Router 被收窄为一个不绑定 Agent 框架的 execution-permit/refere
 |---|---|---|
 | [OWASP GenAI LLM Top 10 2026](https://genai.owasp.org/resource/owasp-genai-llm-top-10-2026/) | Excessive Agency、工具输入/输出、敏感信息和供应链是 action binding/最小审计的背景 | 只实现 execution-permit 直接相关控制；其他项记录为外部责任或 non-goal |
 | [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/) | Tool Misuse、Identity/Privilege Abuse、Goal Hijack 支持“计划不等于授权” | 用 structured identity + canonical action + Permit；不扩成全套 Agent 安全平台 |
+| [OWASP Agent Control Standard v0.1](https://genai.owasp.org/resource/agent-control-standard-acs/) | Runtime hook 与跨框架 control point 邻近 Aegis 的执行边界，但 v0.1 conformance 仍是实现者自证 | `defer` 集成；不声明 ACS compatibility，不扩展 Guardian、observability 或 AgBOM |
+| [OWASP GenAI Security Industry Framework Crosswalk](https://genai-security-project.github.io/crosswalk/) | 可用于查找相邻控制，但其站点明确所有 mapping 在具名 reviewer 签署前均为 `unreviewed` | 只作导航，不据此声称合规、覆盖或提升验证状态 |
 | [NIST AI RMF 1.0 / NIST AI 600-1](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence) | 要求清楚表达治理、测量、限制与剩余风险 | 维护策略版本、测试、receipt、证据等级和非目标；不声称框架合规 |
 | [MITRE ATLAS](https://atlas.mitre.org/) | 为威胁和 fixture 提供分类线索 | `docs_only/fixture`；不作为功能清单 |
 | [MCP Security](https://github.com/modelcontextprotocol/modelcontextprotocol/security) | 用户同意、最小权限、工具边界和隔离责任 | MCP 为唯一 Adapter；Aegis 只负责动作授权/Permit，不冒充隔离或 OAuth |

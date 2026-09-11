@@ -1,4 +1,4 @@
-# Aegis Router MCP 执行许可试点
+# Aegis_Router MCP 执行许可试点
 
 [English](enterprise-agent-pilot.md) | 简体中文
 

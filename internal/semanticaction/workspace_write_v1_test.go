@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/semanticaction"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/semanticaction"
 )
 
 func TestWorkspaceWriteV1ValidatesAndNormalizesExactSemantics(t *testing.T) {

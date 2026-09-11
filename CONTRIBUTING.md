@@ -2,7 +2,7 @@
 
 English | [简体中文](CONTRIBUTING.zh-CN.md)
 
-Thank you for improving **Aegis Router — Execution Permits for AI Agent Actions**. The repository is still named `agent-governance-gateway`.
+Thank you for improving **Aegis_Router — Execution Permits for AI Agent Actions**. The repository is [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router).
 
 ## Preserve one security property
 

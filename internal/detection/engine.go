@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"agent-governance-gateway/internal/models"
+	"github.com/szey/Aegis_Router/internal/models"
 )
 
 // Engine correlates privacy-preserving request metadata within one process.

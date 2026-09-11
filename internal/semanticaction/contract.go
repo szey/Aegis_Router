@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"agent-governance-gateway/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/canonicalaction"
 )
 
 type RejectionCode string

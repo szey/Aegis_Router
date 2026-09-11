@@ -2,7 +2,7 @@
 
 English | [简体中文](SECURITY.zh-CN.md)
 
-This document applies to **Aegis Router — Execution Permits for AI Agent Actions**. The repository remains named `agent-governance-gateway`.
+This document applies to **Aegis_Router — Execution Permits for AI Agent Actions** in [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router).
 
 ## Reporting a vulnerability
 

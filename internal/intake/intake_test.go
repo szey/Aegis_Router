@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/intake"
-	"agent-governance-gateway/internal/models"
+	"github.com/szey/Aegis_Router/internal/intake"
+	"github.com/szey/Aegis_Router/internal/models"
 )
 
 func TestStaticIntakeOverwritesCallerSuppliedSecurityIdentity(t *testing.T) {

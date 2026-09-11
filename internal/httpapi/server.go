@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"agent-governance-gateway/internal/audit"
-	"agent-governance-gateway/internal/discovery"
-	"agent-governance-gateway/internal/intake"
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/permit"
-	"agent-governance-gateway/internal/router"
-	"agent-governance-gateway/internal/sessionaudit"
+	"github.com/szey/Aegis_Router/internal/audit"
+	"github.com/szey/Aegis_Router/internal/discovery"
+	"github.com/szey/Aegis_Router/internal/intake"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/permit"
+	"github.com/szey/Aegis_Router/internal/router"
+	"github.com/szey/Aegis_Router/internal/sessionaudit"
 )
 
 type Server struct {
@@ -98,7 +98,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status": "ok", "service": "aegis-router", "repository": "agent-governance-gateway",
+		"status": "ok", "service": "aegis-router", "repository": "Aegis_Router",
 		"product": "execution-permits-for-ai-agent-actions",
 		"description": "Framework-agnostic execution permits for AI agent tool calls. " +
 			"Authorize once; execute exactly what was authorized.",
@@ -740,8 +740,8 @@ func decodeJSON(req *http.Request, value any) error {
 }
 
 func requireLocalAdmin(w http.ResponseWriter, req *http.Request) bool {
-	if req.Header.Get("X-Agent-Governance-Admin") != "local-ui" {
-		writeError(w, http.StatusForbidden, "local_admin_header_required", "local registry changes require the Aegis Router admin header")
+	if req.Header.Get("X-Aegis-Admin") != "local-ui" {
+		writeError(w, http.StatusForbidden, "local_admin_header_required", "local registry changes require the Aegis_Router admin header")
 		return false
 	}
 	return true

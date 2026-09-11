@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/canonicalaction"
-	"agent-governance-gateway/internal/executionproof"
-	"agent-governance-gateway/internal/keyprovider"
-	"agent-governance-gateway/internal/permit"
-	"agent-governance-gateway/internal/verifier"
+	"github.com/szey/Aegis_Router/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/executionproof"
+	"github.com/szey/Aegis_Router/internal/keyprovider"
+	"github.com/szey/Aegis_Router/internal/permit"
+	"github.com/szey/Aegis_Router/internal/verifier"
 )
 
 func TestValidPermitVerifiesAndIsConsumed(t *testing.T) {

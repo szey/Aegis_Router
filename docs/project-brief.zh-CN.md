@@ -1,4 +1,4 @@
-# Aegis Router 项目说明
+# Aegis_Router 项目说明
 
 [English](project-brief.md) | 简体中文
 
@@ -6,7 +6,7 @@
 
 ## 一句话定位
 
-Aegis Router 是带有 Server-owned 语义动作配置、且不绑定 Agent 框架的 execution-permit 层：它先进行确定性 Policy 资格判断，再把获授权的请求解析为精确的规范动作，签发短时、签名、动作绑定、单次使用的许可，并要求 MCP 执行边界在真实副作用前验证和消费许可。
+Aegis_Router 是带有 Server-owned 语义动作配置、且不绑定 Agent 框架的 execution-permit 层：它先进行确定性 Policy 资格判断，再把获授权的请求解析为精确的规范动作，签发短时、签名、动作绑定、单次使用的许可，并要求 MCP 执行边界在真实副作用前验证和消费许可。
 
 > **获得授权的动作，必须与实际执行的动作完全一致。**
 

@@ -12,7 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"agent-governance-gateway/internal/keyprovider"
+	"github.com/szey/Aegis_Router/internal/keyprovider"
 )
 
 var (

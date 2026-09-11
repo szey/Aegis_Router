@@ -1,3 +1,3 @@
-module agent-governance-gateway
+module github.com/szey/Aegis_Router
 
 go 1.26

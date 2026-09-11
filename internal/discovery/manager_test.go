@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"agent-governance-gateway/internal/discovery"
+	"github.com/szey/Aegis_Router/internal/discovery"
 )
 
 func TestManagerPersistsApprovalsAndReconcilesOnChange(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/config"
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/policy"
+	"github.com/szey/Aegis_Router/internal/config"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/policy"
 )
 
 func TestUnknownAgentFailsClosed(t *testing.T) {

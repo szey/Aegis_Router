@@ -3,7 +3,7 @@ package risk
 import (
 	"fmt"
 
-	"agent-governance-gateway/internal/models"
+	"github.com/szey/Aegis_Router/internal/models"
 )
 
 type Scorer struct {

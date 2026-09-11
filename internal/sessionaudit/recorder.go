@@ -83,7 +83,7 @@ func (r *Recorder) Close() error {
 
 func (r *Recorder) RecordLifecycle(eventType, status string, details []string) (Event, error) {
 	event := Event{
-		Source:      "agent-governance-observer",
+		Source:      "aegis-router-observer",
 		Trust:       TrustObserver,
 		EventType:   eventType,
 		ActionClass: "process.lifecycle",
@@ -102,7 +102,7 @@ func (r *Recorder) append(event Event) (Event, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sequence++
-	event.SchemaVersion = "agent-governance.session-event.v1"
+	event.SchemaVersion = "aegis-router.session-event.v1"
 	event.SessionID = r.sessionID
 	event.Sequence = r.sequence
 	event.ObservedAt = r.clock().UTC()

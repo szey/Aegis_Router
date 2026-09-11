@@ -1,7 +1,7 @@
 {
   "schema_version": "research-to-product.v1",
   "skill": "research-to-product",
-  "project_name": "Aegis Router",
+  "project_name": "Aegis_Router",
   "working_language": "zh-CN",
   "product_focus": "Framework-agnostic, signed, short-lived, action-bound, single-use execution permits for AI Agent actions",
   "primary_security_property": "The action that was authorized must be exactly the action that executes",

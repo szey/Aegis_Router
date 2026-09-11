@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/permit"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/permit"
 )
 
 func Load(path string) (models.PolicyConfig, error) {

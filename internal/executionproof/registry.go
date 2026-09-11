@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"agent-governance-gateway/internal/keyprovider"
+	"github.com/szey/Aegis_Router/internal/keyprovider"
 )
 
 // Registry is the server-owned Ed25519 public-key registry used at the MCP

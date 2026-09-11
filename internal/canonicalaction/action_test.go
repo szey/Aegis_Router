@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"agent-governance-gateway/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/canonicalaction"
 )
 
 func TestArgumentOrderDoesNotChangeDigest(t *testing.T) {

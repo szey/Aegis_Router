@@ -11,8 +11,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"agent-governance-gateway/internal/canonicalaction"
-	"agent-governance-gateway/internal/models"
+	"github.com/szey/Aegis_Router/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/models"
 )
 
 const (

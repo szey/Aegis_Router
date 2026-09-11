@@ -1,4 +1,4 @@
-# Aegis Router Project Brief
+# Aegis_Router Project Brief
 
 English | [简体中文](project-brief.zh-CN.md)
 
@@ -6,7 +6,7 @@ English | [简体中文](project-brief.zh-CN.md)
 
 ## One-line position
 
-Aegis Router is a framework-agnostic execution-permit layer with server-owned semantic action profiles. It first evaluates deterministic Policy eligibility, then resolves a granted request into an exact normalized action, issues a short-lived, signed, action-bound, single-use permit, and requires the MCP execution boundary to verify and consume it before the real side effect.
+Aegis_Router is a framework-agnostic execution-permit layer with server-owned semantic action profiles. It first evaluates deterministic Policy eligibility, then resolves a granted request into an exact normalized action, issues a short-lived, signed, action-bound, single-use permit, and requires the MCP execution boundary to verify and consume it before the real side effect.
 
 > **The action that was authorized must be exactly the action that executes.**
 

@@ -4,8 +4,8 @@ data/
 # Build output
 bin/
 dist/
-agent-governance-gateway
-agent-governance-gateway.exe
+aegis-router
+aegis-router.exe
 coverage.out
 tmp/
 

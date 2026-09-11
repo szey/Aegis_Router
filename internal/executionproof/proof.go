@@ -14,8 +14,8 @@ import (
 	"io"
 	"strings"
 
-	"agent-governance-gateway/internal/canonicalaction"
-	"agent-governance-gateway/internal/keyprovider"
+	"github.com/szey/Aegis_Router/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/keyprovider"
 )
 
 const (

@@ -59,4 +59,4 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Build container
-        run: docker build -t agent-governance-gateway:ci .
+        run: docker build -t aegis-router:ci .

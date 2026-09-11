@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"agent-governance-gateway/internal/discovery"
+	"github.com/szey/Aegis_Router/internal/discovery"
 )
 
 type pathsFlag []string

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/keyprovider"
-	"agent-governance-gateway/internal/permit"
+	"github.com/szey/Aegis_Router/internal/keyprovider"
+	"github.com/szey/Aegis_Router/internal/permit"
 )
 
 const testKeyID = "test-ed25519-01"

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/executionproof"
+	"github.com/szey/Aegis_Router/internal/executionproof"
 )
 
 func TestEd25519ExecutionProofRoundTripAndTamperRejection(t *testing.T) {

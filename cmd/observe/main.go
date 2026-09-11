@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"agent-governance-gateway/internal/sessionaudit"
+	"github.com/szey/Aegis_Router/internal/sessionaudit"
 )
 
 func main() {
@@ -22,7 +22,7 @@ func run(args []string) int {
 	flags := flag.NewFlagSet("observe", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	auditPath := flags.String("audit", filepath.Join("data", "session-audit.jsonl"), "append-only normalized audit path")
-	sessionID := flags.String("session", fmt.Sprintf("local-%d", time.Now().UnixNano()), "Aegis Router correlation session ID")
+	sessionID := flags.String("session", fmt.Sprintf("local-%d", time.Now().UnixNano()), "Aegis_Router correlation session ID")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}

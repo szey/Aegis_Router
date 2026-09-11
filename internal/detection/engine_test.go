@@ -3,8 +3,8 @@ package detection_test
 import (
 	"testing"
 
-	"agent-governance-gateway/internal/detection"
-	"agent-governance-gateway/internal/models"
+	"github.com/szey/Aegis_Router/internal/detection"
+	"github.com/szey/Aegis_Router/internal/models"
 )
 
 func TestIndirectPromptInjectionBeforeToolActionIsDenied(t *testing.T) {

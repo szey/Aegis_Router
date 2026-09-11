@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/audit"
-	"agent-governance-gateway/internal/canonicalaction"
-	"agent-governance-gateway/internal/config"
-	"agent-governance-gateway/internal/intake"
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/permit"
-	"agent-governance-gateway/internal/router"
-	"agent-governance-gateway/internal/scenario"
+	"github.com/szey/Aegis_Router/internal/audit"
+	"github.com/szey/Aegis_Router/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/config"
+	"github.com/szey/Aegis_Router/internal/intake"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/permit"
+	"github.com/szey/Aegis_Router/internal/router"
+	"github.com/szey/Aegis_Router/internal/scenario"
 )
 
 func TestDemoScenariosHaveExpectedDispatch(t *testing.T) {

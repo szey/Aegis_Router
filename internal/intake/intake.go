@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"agent-governance-gateway/internal/executionproof"
-	"agent-governance-gateway/internal/models"
+	"github.com/szey/Aegis_Router/internal/executionproof"
+	"github.com/szey/Aegis_Router/internal/models"
 )
 
 var ErrTrustedContextRequired = errors.New("trusted authorization context is required")

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"agent-governance-gateway/internal/models"
+	"github.com/szey/Aegis_Router/internal/models"
 )
 
 // Registry is a fixed dispatcher for profiles compiled into the server. It

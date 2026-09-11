@@ -2,7 +2,7 @@
 
 [English](CONTRIBUTING.md) | 简体中文
 
-感谢你改进 **Aegis Router — AI Agent 动作的执行许可**。仓库名称暂时仍是 `agent-governance-gateway`。
+感谢你改进 **Aegis_Router — AI Agent 动作的执行许可**。仓库地址为 [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router)。
 
 ## 先守住一个安全属性
 

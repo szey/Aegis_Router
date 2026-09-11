@@ -3,8 +3,8 @@ package semanticaction_test
 import (
 	"testing"
 
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/semanticaction"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/semanticaction"
 )
 
 type stubProfile struct {

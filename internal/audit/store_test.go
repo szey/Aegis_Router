@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/audit"
-	"agent-governance-gateway/internal/models"
+	"github.com/szey/Aegis_Router/internal/audit"
+	"github.com/szey/Aegis_Router/internal/models"
 )
 
 func TestStoreReturnsDeepCopiesOfNestedAuditState(t *testing.T) {

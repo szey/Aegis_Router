@@ -2,7 +2,7 @@
 
 [English](SECURITY.md) | 简体中文
 
-本文适用于 **Aegis Router — AI Agent 动作的执行许可**。仓库名称暂时仍是 `agent-governance-gateway`。
+本文适用于 [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router) 中的 **Aegis_Router — AI Agent 动作的执行许可**。
 
 ## 报告漏洞
 

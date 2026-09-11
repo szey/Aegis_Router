@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"agent-governance-gateway/internal/keyprovider"
+	"github.com/szey/Aegis_Router/internal/keyprovider"
 )
 
 func TestEphemeralProviderKeepsOneProcessLocalKeyAndKeyID(t *testing.T) {

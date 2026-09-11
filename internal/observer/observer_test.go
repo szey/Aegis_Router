@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"agent-governance-gateway/internal/models"
-	"agent-governance-gateway/internal/observer"
+	"github.com/szey/Aegis_Router/internal/models"
+	"github.com/szey/Aegis_Router/internal/observer"
 )
 
 func TestRuntimeEventInsidePermitIsAllowed(t *testing.T) {
