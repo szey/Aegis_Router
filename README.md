@@ -10,8 +10,6 @@ If the Agent changes the tool, operation, resource, or security-relevant argumen
 
 > **The action that was authorized must be exactly the action that executes.**
 
-Aegis is not a sandbox, EDR, IAM system, Agent management platform, or enterprise Inventory product. The GitHub repository remains [`szey/agent-governance-gateway`](https://github.com/szey/agent-governance-gateway) to avoid a migration; the product name is **Aegis Router**.
-
 ## Core execution path
 
 ```text
