@@ -4,6 +4,8 @@ English | [简体中文](SECURITY.zh-CN.md)
 
 This document applies to **Aegis_Router — Execution Permits for AI Agent Actions** in [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router).
 
+The 2026-09-13 [redesign proposal](docs/manus-redesign.md) is now followed by the [M1 implementation](docs/m1-execution-admission.md): pre-consumption obligation rejection and fixed-route redirect blocking. External controllers, environment leases and independent durable audit remain unimplemented. A signed lease is not hardware attestation, and a tool-call Permit is not sandbox-escape protection.
+
 ## Reporting a vulnerability
 
 Do not disclose a suspected vulnerability in a public issue. If GitHub Private Vulnerability Reporting is enabled, use it and include the affected version/commit, a minimal safe reproduction, expected and actual verification results, whether the upstream tool was called, potential impact, and a feasible mitigation.
@@ -79,7 +81,7 @@ Exactly two server-owned semantic mappings are compiled in and dispatched throug
 
 Policy and the two supported semantic profiles remain deterministic. Policy evaluates request eligibility first; only a grant reaches server-owned semantic resolution. Both the Policy grant and successful semantic resolution are required for Permit issuance and signed obligations. The executable flow currently supports `AUTHORIZED / DENIED`. The model can represent `REQUIRES_APPROVAL`, but no supported approval-completion flow exists and it cannot produce an executable Permit. Risk scores and detection findings enter only `advisory_signals`; they cannot override denial, create a grant, issue a Permit, or select an executor. Obligations such as `human_approval_required`, `isolation_required`, or `enhanced_audit_required` require an explicit deterministic Policy/configuration mapping.
 
-Aegis does not implement a sandbox. `isolation_required: true` asks an external executor to supply isolation; the focused MCP proxy fails closed with `EXECUTION_OBLIGATION_UNSATISFIED` instead of forwarding when isolation or human approval is still required. `read_only` and `network_egress_denied` remain signed requirements that an independently trusted executor/control must actually enforce. `SANDBOX` in compatibility output is also a profile hint. Do not claim Docker, gVisor, Firecracker, filesystem, or network isolation.
+Aegis implements no sandbox or external constraint enforcer. All five signed obligations fail closed before nonce/Permit consumption with `UNSATISFIED_OBLIGATION`; the receipt records `constraint_checks` and `EXECUTION_OBLIGATION_UNSATISFIED`. A required read-only resource cannot be justified by a write/transfer operation or an Agent report. Local JSONL does not satisfy enhanced durable audit. Shipped deny-egress grants therefore cannot forward real calls. The MCP client rejects redirects even when a custom client would allow them; the original Permit remains consumed, `UPSTREAM_REDIRECT_BLOCKED` is recorded, and neither Location nor redirect body is forwarded. These controls do not supply DNS/IP pinning, host network isolation or business-commit certainty.
 
 ## Audit and sensitive data
 

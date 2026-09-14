@@ -988,7 +988,7 @@ func testRouter(t *testing.T) (*router.Router, *audit.Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return router.New(cfg, store), store, path
+	return router.New(unconstrainedMockPolicy(cfg), store), store, path
 }
 
 func newProxy(t *testing.T, r *router.Router, upstreamURL string, client *http.Client) *mcp.Proxy {
@@ -1027,7 +1027,7 @@ func twoProfileProxy(t *testing.T, paymentUpstreamURL, workspaceUpstreamURL stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := router.New(cfg, store)
+	r := router.New(unconstrainedMockPolicy(cfg), store)
 	proxy, err := mcp.New(r, r.SemanticRegistry(), paymentUpstreamURL, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -20,7 +20,8 @@ Authenticated identity + Agent proposes action
   → deterministic Policy eligibility
   → resolve server-owned semantic profile into CanonicalAction
   → issue Execution Permit
-  → verify and consume Permit at the MCP execution boundary
+  → verify Permit/proof/action and check constraints before consumption
+  → atomically consume Permit; dispatch to a fixed target without redirects
   → call upstream tool only after VERIFIED
   → write a redacted Audit Receipt
 ```
@@ -36,6 +37,8 @@ The security boundary is **before the real tool side effect**. `POST /api/runtim
 - **Implemented:** fail-closed, loopback-development, and trusted reverse-proxy authorization intake modes; signed `execution`/`simulation` class separation; short-lived single-use permits; replay protection; canonical action binding; exactly two compiled-in profiles (`payment.send/v1` and logical `workspace.write/v1`); and one shared focused MCP HTTP `POST` enforcement path.
 - **Demo or experimental:** server-owned simulation scenarios and telemetry; frozen Inventory is hidden unless explicitly enabled.
 - **Not implemented:** an approval completion workflow, sandbox/EDR/IAM, business exactly-once delivery, a third or dynamically loaded semantic profile, additional execution adapters, real filesystem writes, and full MCP protocol conformance. `REQUIRES_APPROVAL` remains a model/config result only; no supported approval flow can turn it into an executable Permit.
+
+- **M1 implemented:** all five signed execution requirements fail closed before consumption, with receipt diagnostics; fixed MCP routes never follow redirects. Without external enforcers, real execution carrying any of these requirements rejects.
 
 ## Core objects
 
@@ -182,7 +185,7 @@ The model can represent `REQUIRES_APPROVAL`, but this release has no supported a
 }
 ```
 
-`isolation_required: true` requires an external execution environment to supply isolation; Aegis does not implement or claim a sandbox. The focused MCP proxy therefore consumes and rejects a valid Permit when `isolation_required` or `human_approval_required` is still unsatisfied, records `EXECUTION_OBLIGATION_UNSATISFIED`, and never calls upstream. `read_only` and `network_egress_denied` remain signed requirements: the reference proxy binds the requested operation but cannot prove the internal behavior of an arbitrary upstream tool, so deployment needs a separately trusted executor/control for those semantics. `ALLOW / RESTRICT / SANDBOX / DENY / ESCALATE` in compatibility responses are legacy routing or obligation/profile hints.
+All five signed obligations are checked in the core verifier before proof-nonce or Permit consumption. M1 has no trusted runtime/resource enforcer, approval-completion chain or durable dispatch journal, so any required `isolation_required`, `network_egress_denied`, `read_only`, `human_approval_required` or `enhanced_audit_required` returns `UNSATISFIED_OBLIGATION`, leaves the Permit `ISSUED`, records `EXECUTION_OBLIGATION_UNSATISFIED` with `constraint_checks`, and calls no upstream. The shipped deny-egress payment/workspace grants therefore reject real MCP execution; they have not been weakened. An operation binding is not evidence of upstream enforcement. See the [M1 implementation and migration record](docs/m1-execution-admission.md). Legacy route labels remain obligation/profile hints.
 
 ## Trusted authorization intake modes
 
@@ -276,6 +279,8 @@ Chinese is the semantic working source; English changes in the same commit:
 | Topic | 简体中文 | English |
 |---|---|---|
 | Product brief | [中文](docs/project-brief.zh-CN.md) | [English](docs/project-brief.md) |
+| Manus and three security studies: redesign (M1 implemented; later stages pending) | [中文](docs/manus-redesign.zh-CN.md) | [English](docs/manus-redesign.md) |
+| M1 admission and fixed routes: implementation, experiments and migration | [中文](docs/m1-execution-admission.zh-CN.md) | [English](docs/m1-execution-admission.md) |
 | MCP execution-permit pilot | [中文](docs/experiments/enterprise-agent-pilot.zh-CN.md) | [English](docs/experiments/enterprise-agent-pilot.md) |
 | Research and product decisions | [中文](docs/research-product-mapping-iteration.zh-CN.md) | [English](docs/research-product-mapping-iteration.md) |
 | Contributing | [中文](CONTRIBUTING.zh-CN.md) | [English](CONTRIBUTING.md) |

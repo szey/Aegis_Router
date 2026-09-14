@@ -4,6 +4,8 @@
 
 > **AI Agent 动作的执行许可**
 
+2026-09-13 的[重设计提案](manus-redesign.zh-CN.md)已完成第一阶段：[M1 执行准入与固定路由](m1-execution-admission.zh-CN.md)。不支持的要求在消费前拒绝，重定向不能扩大目标。持久状态、环境 lease 与生命周期保留为后续阶段；项目契约未修改。
+
 ## 一句话定位
 
 Aegis_Router 是带有 Server-owned 语义动作配置、且不绑定 Agent 框架的 execution-permit 层：它先进行确定性 Policy 资格判断，再把获授权的请求解析为精确的规范动作，签发短时、签名、动作绑定、单次使用的许可，并要求 MCP 执行边界在真实副作用前验证和消费许可。
@@ -127,7 +129,7 @@ Policy 首先对结构化 Request context 进行确定性资格判断。只有 P
 
 Risk/detection 保留为可选咨询元数据并单独进入 `advisory_signals`；它们不能改变授权状态、产生 grant、签发 Permit 或选择 executor。只有显式确定性 Policy/配置映射可以产生 `human_approval_required`、`isolation_required`、`enhanced_audit_required` 等 obligations。
 
-`isolation_required: true` 由外部 executor 履行。Aegis 不实现 sandbox backend，focused MCP Proxy 在仍需要隔离或人工批准时不会转发。Read-only 与 network-egress obligations 仍需要可信外部 executor/control 落实上游 Tool 的真实行为；兼容字段中的 `RESTRICT/SANDBOX` 只是 execution profile hint。
+五类签名要求都需要独立可信的实施方。M1 尚未接入，因此核心对必需的隔离、禁网、只读、人工审批和增强审计在消费前拒绝。这会阻止默认禁网 payment/workspace 策略的真实转发。响应和 receipt 通过 `constraint_checks` 解释范围与拒绝原因，不声称约束已经实施。MCP 还会拒绝重定向，原目标发送后保留消费状态。
 
 ## Audit Receipt 与 Runtime Evidence
 

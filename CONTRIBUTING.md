@@ -35,7 +35,7 @@ Every pull request must preserve:
 - a Permit is consumed before upstream; failure/timeout never restores it, retry requires a fresh authorization, and `unconsume` must not be added;
 - `permit_token`, signing private keys, raw bearer/delegated tokens, secret values, and raw sensitive arguments never enter logs, UI, or error messages;
 - authorization stays deterministic; risk/detection enter only `advisory_signals` and cannot change status, issue a Permit, or create obligations;
-- `isolation_required` is an external execution obligation, not an Aegis sandbox claim; the focused MCP proxy must not forward while isolation or human approval is unsatisfied;
+- all five signed execution obligations are checked before nonce/Permit consumption; unsupported requirements leave the Permit `ISSUED` and upstream untouched; no boolean or Agent report may stand in for a trusted enforcer;
 - runtime evidence retains source/trust, and `agent_self_reported` or `simulated_demo` never masquerades as independent observation;
 - uninstrumented coverage remains `UNKNOWN / not instrumented`.
 

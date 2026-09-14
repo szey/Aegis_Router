@@ -274,8 +274,8 @@ func (r *Router) RegisterWorkloadPublicKey(keyID string, publicKey ed25519.Publi
 }
 
 // VerifyExecutionAndConsume is the sole real-execution consumption entry. It
-// performs Permit, workload-proof, action, freshness and replay checks before
-// atomically consuming the execution Permit.
+// performs Permit, workload-proof, action, freshness, obligation and replay
+// checks before atomically consuming the execution Permit.
 func (r *Router) VerifyExecutionAndConsume(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) (models.PermitVerification, error) {
 	result := r.permitVerifier.VerifyExecutionAndConsume(permitToken, proofToken, action, httpMethod, httpPath)
 	verification := permitVerification(result, models.RuntimeSourceGatewayEnforced)
@@ -292,7 +292,8 @@ func permitVerification(result verifier.Result, source models.RuntimeEventSource
 	verification := models.PermitVerification{
 		PermitID: result.PermitID, RequestID: result.RequestID, Outcome: string(result.Outcome),
 		Verified: result.Allowed(), State: string(result.State), VerifiedAt: result.VerifiedAt,
-		EvidenceSource: string(source),
+		EvidenceSource:   string(source),
+		ConstraintChecks: result.ConstraintChecks,
 	}
 	if result.Claims != nil {
 		verification.PermitClass = string(result.Claims.PermitClass)
@@ -325,6 +326,7 @@ func (r *Router) auditPermitVerification(result verifier.Result, source models.R
 			record.ExecutionReceipt.PermitState = string(result.State)
 			if verificationOutcomePriority(string(result.Outcome)) >= verificationOutcomePriority(existingOutcome) {
 				record.ExecutionReceipt.VerificationOutcome = string(result.Outcome)
+				record.ExecutionReceipt.ConstraintChecks = result.ConstraintChecks
 				record.ExecutionReceipt.Timestamp = result.VerifiedAt
 				record.ExecutionReceipt.EvidenceSource = source
 			}
@@ -497,6 +499,8 @@ func permitVerdict(outcome verifier.Outcome) string {
 		return "PERMIT_CLASS_MISMATCH"
 	case verifier.OutcomeWrongExecutor:
 		return "PERMIT_WRONG_EXECUTOR"
+	case verifier.OutcomeUnsatisfiedObligation:
+		return "EXECUTION_OBLIGATION_UNSATISFIED"
 	default:
 		return "PERMIT_REJECTED"
 	}
@@ -603,7 +607,7 @@ func (r *Router) completeExecution(completion models.ExecutionCompletion, source
 		if source != models.RuntimeSourceGatewayEnforced && source != models.RuntimeSourceSimulatedDemo {
 			return models.AuditRecord{}, fmt.Errorf("boundary_outcome is reserved for a trusted execution adapter")
 		}
-		if completion.BoundaryOutcome != "UNSATISFIED_OBLIGATION" {
+		if completion.BoundaryOutcome != "UNSATISFIED_OBLIGATION" && completion.BoundaryOutcome != "UPSTREAM_REDIRECT_BLOCKED" {
 			return models.AuditRecord{}, fmt.Errorf("unsupported boundary_outcome")
 		}
 	}
@@ -671,6 +675,8 @@ func (r *Router) completeExecution(completion models.ExecutionCompletion, source
 		}
 		if completion.BoundaryOutcome == "UNSATISFIED_OBLIGATION" {
 			record.FinalVerdict = "EXECUTION_OBLIGATION_UNSATISFIED"
+		} else if completion.BoundaryOutcome == "UPSTREAM_REDIRECT_BLOCKED" {
+			record.FinalVerdict = "EXECUTION_REDIRECT_BLOCKED"
 		} else if record.FinalVerdict != "AUTHORIZATION_BOUNDARY_VIOLATION" && record.FinalVerdict != "RUNTIME_EVENT_REJECTED" &&
 			!(strings.HasPrefix(record.FinalVerdict, "PERMIT_") && record.FinalVerdict != "PERMIT_VERIFIED") {
 			switch completion.Status {

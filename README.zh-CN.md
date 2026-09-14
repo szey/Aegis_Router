@@ -20,7 +20,8 @@ Aegis 不是沙箱、EDR、IAM、Agent 管理平台或企业 Inventory 产品。
   → 确定性 Policy 资格判断
   → 由服务端拥有的语义配置解析为 CanonicalAction
   → 签发 Execution Permit
-  → MCP 执行边界验证并消费 Permit
+  → 验证 Permit/Proof/动作，消费前检查执行约束
+  → 原子消费 Permit；向固定目标发送且禁止重定向
   → 仅在 VERIFIED 后调用上游工具
   → 写入脱敏 Audit Receipt
 ```
@@ -36,6 +37,8 @@ Aegis 不是沙箱、EDR、IAM、Agent 管理平台或企业 Inventory 产品。
 - **已实现：**默认拒绝、本地 loopback 开发和可信反向代理三种授权入口模式；签名绑定的 `execution`/`simulation` 用途隔离；短时单次 Permit；replay protection；CanonicalAction 绑定；恰好两个内置配置（`payment.send/v1` 与逻辑 `workspace.write/v1`）；以及共用的一条聚焦 MCP HTTP `POST` 执行路径。
 - **演示或实验能力：**Server-owned simulation 场景与 telemetry；冻结的 Inventory 只有显式开启才显示。
 - **未实现：**审批完成流程、sandbox/EDR/IAM、业务副作用 exactly-once、第三个或动态加载的语义配置、额外执行 Adapter、真实文件系统写入，以及完整 MCP 协议兼容。`REQUIRES_APPROVAL` 目前只是模型/配置结果，没有受支持的审批流程可以把它转换成可执行 Permit。
+
+- **M1 已实现：**五类签名执行要求在消费前统一默认拒绝；拒绝原因写入 receipt；固定 MCP 路由不跟随重定向。当前无外部实施方，带这些要求的真实执行均拒绝。
 
 ## 核心对象
 
@@ -184,7 +187,7 @@ curl -sS -H "Content-Type: application/json" --data-binary @docs/examples/worksp
 }
 ```
 
-`isolation_required: true` 只要求外部执行环境提供隔离；Aegis 本身不实现或声称提供沙箱。因此，当 `isolation_required` 或 `human_approval_required` 仍未满足时，focused MCP Proxy 会消费并拒绝这个有效 Permit，记录 `EXECUTION_OBLIGATION_UNSATISFIED`，而且绝不调用上游。`read_only` 与 `network_egress_denied` 仍是已签名要求：参考 Proxy 会绑定被请求的 operation，但无法证明任意上游 Tool 的内部行为，部署方仍需另行提供可信 executor/control 来落实这些语义。兼容响应中的 `ALLOW / RESTRICT / SANDBOX / DENY / ESCALATE` 只代表旧版分流或 obligation/profile hint。
+五类签名要求统一在核心 verifier 中检查，位置在 proof nonce 和 Permit 消费之前。M1 尚无可信 runtime/resource 实施方、审批完成链或持久调度日志，因此任何必需的 `isolation_required`、`network_egress_denied`、`read_only`、`human_approval_required`、`enhanced_audit_required` 都返回 `UNSATISFIED_OBLIGATION`，Permit 保持 `ISSUED`，记录 `EXECUTION_OBLIGATION_UNSATISFIED` 与 `constraint_checks`，上游调用为零。默认 payment/workspace 的禁网策略会阻止真实 MCP 执行，策略未被放宽。动作绑定不等于上游实施证据，详见 [M1 实现与迁移记录](docs/m1-execution-admission.zh-CN.md)。旧版分流标签仍只是 obligation/profile hint。
 
 ## 可信授权入口模式
 
@@ -278,6 +281,8 @@ go run ./cmd/server
 | 主题 | 简体中文 | English |
 |---|---|---|
 | 产品说明 | [中文](docs/project-brief.zh-CN.md) | [English](docs/project-brief.md) |
+| Manus 与三篇安全研究驱动的重设计（M1 已落地，后续阶段待实现） | [中文](docs/manus-redesign.zh-CN.md) | [English](docs/manus-redesign.md) |
+| M1 执行约束与固定路由：实现、实验和迁移 | [中文](docs/m1-execution-admission.zh-CN.md) | [English](docs/m1-execution-admission.md) |
 | MCP 执行许可试点 | [中文](docs/experiments/enterprise-agent-pilot.zh-CN.md) | [English](docs/experiments/enterprise-agent-pilot.md) |
 | 调研与产品决定 | [中文](docs/research-product-mapping-iteration.zh-CN.md) | [English](docs/research-product-mapping-iteration.md) |
 | 参与贡献 | [中文](CONTRIBUTING.zh-CN.md) | [English](CONTRIBUTING.md) |
