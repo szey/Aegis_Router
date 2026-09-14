@@ -2,7 +2,7 @@
 
 English | [简体中文](research-product-mapping-iteration.zh-CN.md)
 
-Latest product review: 2026-09-07
+Latest product review: 2026-09-13 (redesign research; not a revalidation of every historical standards entry)
 
 This is Aegis_Router's unified research register. Standards, incidents, media/security-company guidance, community pain points, open-source lessons, dispositions, and product mappings all live here. Chinese is the semantic working source and English must change in the same commit.
 
@@ -191,3 +191,38 @@ The project contract continues to prohibit automatic publication, deployment, an
 - Never automatically deploy, publish, collect company logs, or use real external targets.
 - Chinese is the semantic source and English changes in the same batch.
 - Before every version tag and formal MCP pilot, recheck signature, canonicalization, replay, privacy, race, and upstream-not-called properties.
+
+## 12. 2026-09-13 redesign based on Manus and three recommended articles
+
+Full sources, publication/event dates, mechanisms, commercial dependencies, code evidence, diagrams, and acceptance criteria are in the [bilingual redesign proposal](manus-redesign.md). R1/R2/R3 were located in the latest three “Saturday Essential Read” recommendations and checked against their originals. This does not count three new incidents or rerun the reported attacks. Source IDs below refer to that proposal.
+
+The following historical records were reviewed on 2026-09-13 at `V1`; the local code record has a later update in section 13. Separate source advice from project design: Manus offers product/engineering experience; R1 provides investigation observations; R2 recommends reduced attack surface, timely updates, least privilege, and bounded runtime; R3 emphasizes layered infrastructure and monitoring; F1 assigns filtering to host integration. These are our dispositions, not source validation of Aegis.
+
+| research_id | Source/mechanism and relevance | Phase, dependencies, side effects | Single disposition and next step |
+|---|---|---|---|
+| `REDESIGN-2026-09-13-01` | M1/M3/M4 `S3`, M5 `S4`: long runs, subtasks, and recreation require task/instance distinction | Prevention/recovery; external controller and lifecycle complexity; historical vendor architecture is not the complete current topology | `docs_only`: RunContext, EnvironmentLease, generation, restoration boundaries |
+| `REDESIGN-2026-09-13-02` | M2 `S3`: compacted/file-backed context cannot supply authorization facts | Prevention; Agent host dependency; files may be modified or contain untrusted instructions | `docs_only`: separate memory from authority; tool text cannot change registered semantics |
+| `REDESIGN-2026-09-13-03` | R1 `S2`: shared services and tool-call spoofing expose surrounding trust boundaries | Prevention/detection; service ACLs and external collector; reduced cache efficiency and residual side channels | `docs_only`: task namespaces, trusted dispatch records, provenance-aware receipts; E04/E05 candidate acceptance |
+| `REDESIGN-2026-09-13-04` | R2 `S2`, F1 `S1`: VM implementation and external networking have independent prerequisites | Containment/recovery; Linux/KVM, updates, mandatory network controls; operational cost and no guarantee against host escape | `defer`: pin and pilot a runtime after M1/M2 |
+| `REDESIGN-2026-09-13-05` | R3 `S1`: misconfigured environments and biased reasoning; monitor results differ | Prevention; independent identity, policy, environment facts; conservative denial affects availability | `docs_only`: simulation beliefs cannot establish authority; no reasoning-based authorizer |
+| `REDESIGN-2026-09-13-06` | Local code `S1`: some signed obligations lack unified fulfillment checks; default-client redirects need testing | Prevention; explicit obligation scope and fixed routes; may expose existing configuration conflicts | `experiment`: M1 and E02/E07, reproduce safely before changing and comparing |
+| `REDESIGN-2026-09-13-07` | Local code `S1`: in-memory consumption/nonces, local audit, uncertain external commits | Response/recovery; durable transactions and key lifecycle; latency and failure-handling costs | `experiment`: M2/E08/E09; unknown Permits still deny, rather than asserting current restart accepts replay |
+| `REDESIGN-2026-09-13-08` | Local scope contract `S1`: custom sandbox/generic adapters expand verification scope | Prevention; engineering and operations burden exceeds the current core objective | `reject`: no full IAM, EDR, Inventory, or general orchestration platform in this stage |
+
+Implementation status at the 2026-09-13 research delivery: documentation only. For the subsequent M1 implementation, see section 13 below. Core capabilities, two profiles, MCP scope, and project contract remain unchanged. No new fixture, runtime backend, or production integration was added. Proposed order: M1 execution constraints → M2 durable state → M3 one external sandbox integration → M4 lifecycle and bounded delegation; these are not completed milestones.
+
+Validation at the 2026-09-13 research stage: project-contract check passed; `go test ./...` exited 0 with an isolated temporary GOCACHE, and all packages passed. The first run also passed package tests but exited 1 because the default cache's `trim.txt` was not writable; changing only the cache location resolved it. E02–E12 had not run at that time. Race, vet, frontend and Docker builds were not run then because runtime code, dependencies and deployment configuration were unchanged.
+
+## 13. 2026-09-14: M1 implementation and controlled validation
+
+The updated `$research-to-product` skill guides the user's requested code changes and GitHub push. The original sources in section 12 remain, with code and synthetic experiments establishing project applicability. See the [M1 implementation record](m1-execution-admission.md) for changes, compatibility impact and validation conditions.
+
+| research_id | Current evidence | Disposition | Delivery | Observation and scope |
+|---|---|---|---|---|
+| `REDESIGN-2026-09-13-06` | `S1/V2`, local code and E02/E07 comparisons | `implement` | `completed` | All five requirements reject before consumption, retaining nonce/Permit; fixed MCP routes block redirects; establishes local admission, not external isolation |
+| `REDESIGN-2026-09-13-07` | `S1/V1` | `experiment` | `planned` | Durable single-node consumption and dispatch intent remain M2; local JSONL is not a completed durable transaction |
+| `REDESIGN-2026-09-13-04` | `S2/S1/V1` | `defer` | `planned` | External runtime requires pinned versions, a real environment and independently verified controls; not deployed |
+
+At baseline the core consumed all five required-obligation cases, a deny-egress MCP call reached upstream, and all ten redirect combinations reached the second receiver. These negative conditions now pass, while both profiles retain synthetic successful calls with no additional obligations and existing identity, argument, class and replay coverage. The shipped policy still requires denied egress and rejects real execution; configuration was not loosened to restore the old behavior.
+
+`go test ./...`, `go vet ./...`, frontend type checking and build passed. Windows lacks a cgo toolchain, so local race tests could not run; the Docker Linux daemon was not running, so the local container build could not finish. The workflow for this GitHub commit is the authority for final Linux CI status. External sources are not promoted by these local tests, and no real sandbox, durable recovery or business exactly-once guarantee is claimed.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/szey/Aegis_Router/internal/canonicalaction"
+	"github.com/szey/Aegis_Router/internal/executionconstraints"
 	"github.com/szey/Aegis_Router/internal/executionproof"
 	"github.com/szey/Aegis_Router/internal/keyprovider"
 	"github.com/szey/Aegis_Router/internal/permit"
@@ -19,30 +20,31 @@ import (
 type Outcome string
 
 const (
-	OutcomeVerified         Outcome = "VERIFIED"
-	OutcomeExpired          Outcome = "EXPIRED"
-	OutcomeInvalidSignature Outcome = "INVALID_SIGNATURE"
-	OutcomeActionMismatch   Outcome = "ACTION_MISMATCH"
-	OutcomeWrongPrincipal   Outcome = "WRONG_PRINCIPAL"
-	OutcomeWrongAgent       Outcome = "WRONG_AGENT"
-	OutcomeWrongWorkload    Outcome = "WRONG_WORKLOAD"
-	OutcomeWrongDelegation  Outcome = "WRONG_DELEGATION"
-	OutcomeWrongTool        Outcome = "WRONG_TOOL"
-	OutcomeWrongCapability  Outcome = "WRONG_CAPABILITY"
-	OutcomeWrongResource    Outcome = "WRONG_RESOURCE"
-	OutcomeWrongOperation   Outcome = "WRONG_OPERATION"
-	OutcomeWrongProfile     Outcome = "WRONG_PROFILE"
-	OutcomeWrongAudience    Outcome = "WRONG_AUDIENCE"
-	OutcomeReplayed         Outcome = "REPLAYED"
-	OutcomeRevoked          Outcome = "REVOKED"
-	OutcomeInvalidIssuer    Outcome = "INVALID_ISSUER"
-	OutcomeUnknownPermit    Outcome = "UNKNOWN_PERMIT"
-	OutcomeInvalidPermit    Outcome = "INVALID_PERMIT"
-	OutcomeInvalidAction    Outcome = "INVALID_ACTION"
-	OutcomeNotYetValid      Outcome = "NOT_YET_VALID"
-	OutcomeWrongPermitClass Outcome = "WRONG_PERMIT_CLASS"
-	OutcomeWrongExecutor    Outcome = "WRONG_EXECUTOR"
-	OutcomeValidNotConsumed Outcome = "VALID_NOT_CONSUMED"
+	OutcomeVerified              Outcome = "VERIFIED"
+	OutcomeExpired               Outcome = "EXPIRED"
+	OutcomeInvalidSignature      Outcome = "INVALID_SIGNATURE"
+	OutcomeActionMismatch        Outcome = "ACTION_MISMATCH"
+	OutcomeWrongPrincipal        Outcome = "WRONG_PRINCIPAL"
+	OutcomeWrongAgent            Outcome = "WRONG_AGENT"
+	OutcomeWrongWorkload         Outcome = "WRONG_WORKLOAD"
+	OutcomeWrongDelegation       Outcome = "WRONG_DELEGATION"
+	OutcomeWrongTool             Outcome = "WRONG_TOOL"
+	OutcomeWrongCapability       Outcome = "WRONG_CAPABILITY"
+	OutcomeWrongResource         Outcome = "WRONG_RESOURCE"
+	OutcomeWrongOperation        Outcome = "WRONG_OPERATION"
+	OutcomeWrongProfile          Outcome = "WRONG_PROFILE"
+	OutcomeWrongAudience         Outcome = "WRONG_AUDIENCE"
+	OutcomeReplayed              Outcome = "REPLAYED"
+	OutcomeRevoked               Outcome = "REVOKED"
+	OutcomeInvalidIssuer         Outcome = "INVALID_ISSUER"
+	OutcomeUnknownPermit         Outcome = "UNKNOWN_PERMIT"
+	OutcomeInvalidPermit         Outcome = "INVALID_PERMIT"
+	OutcomeInvalidAction         Outcome = "INVALID_ACTION"
+	OutcomeNotYetValid           Outcome = "NOT_YET_VALID"
+	OutcomeWrongPermitClass      Outcome = "WRONG_PERMIT_CLASS"
+	OutcomeWrongExecutor         Outcome = "WRONG_EXECUTOR"
+	OutcomeValidNotConsumed      Outcome = "VALID_NOT_CONSUMED"
+	OutcomeUnsatisfiedObligation Outcome = "UNSATISFIED_OBLIGATION"
 )
 
 const (
@@ -55,13 +57,14 @@ var ErrInvalidConfiguration = errors.New("invalid verifier configuration")
 // Result is safe to audit or serialize. It contains signed metadata but never
 // the permit token or raw arguments.
 type Result struct {
-	Outcome    Outcome        `json:"outcome"`
-	Verified   bool           `json:"verified"`
-	PermitID   string         `json:"permit_id,omitempty"`
-	RequestID  string         `json:"request_id,omitempty"`
-	State      permit.State   `json:"state,omitempty"`
-	Claims     *permit.Claims `json:"claims,omitempty"`
-	VerifiedAt time.Time      `json:"verified_at"`
+	Outcome          Outcome                      `json:"outcome"`
+	Verified         bool                         `json:"verified"`
+	PermitID         string                       `json:"permit_id,omitempty"`
+	RequestID        string                       `json:"request_id,omitempty"`
+	State            permit.State                 `json:"state,omitempty"`
+	Claims           *permit.Claims               `json:"claims,omitempty"`
+	VerifiedAt       time.Time                    `json:"verified_at"`
+	ConstraintChecks []executionconstraints.Check `json:"constraint_checks,omitempty"`
 }
 
 func (r Result) Allowed() bool { return r.Outcome == OutcomeVerified && r.Verified }
@@ -120,9 +123,9 @@ func (v *Verifier) RegisterWorkloadPublicKey(keyID string, publicKey ed25519.Pub
 }
 
 // VerifyExecutionAndConsume is the sole execution-Permit consumption entry.
-// It validates the Permit, workload proof, action binding, freshness and proof
-// nonce before atomically consuming the Permit. No public proof-free execution
-// consumption method is provided.
+// It validates the Permit, workload proof, action binding, freshness, signed
+// obligations and nonce before atomically consuming the Permit. No public
+// proof-free execution consumption method is provided.
 func (v *Verifier) VerifyExecutionAndConsume(permitToken, proofToken string, action canonicalaction.Action, httpMethod, httpPath string) Result {
 	result := v.verifyExecutionProof(permitToken, proofToken, action, httpMethod, httpPath)
 	if result.Outcome != OutcomeVerified {
@@ -175,6 +178,12 @@ func (v *Verifier) verifyExecutionProof(permitToken, proofToken string, action c
 	}
 	if outcome := actionBindingOutcome(action, *claims); outcome != OutcomeVerified {
 		result.Outcome = outcome
+		return result
+	}
+	constraints := executionconstraints.Evaluate(claims.Obligations, action, now)
+	result.ConstraintChecks = constraints.Checks
+	if !constraints.Allowed {
+		result.Outcome = OutcomeUnsatisfiedObligation
 		return result
 	}
 	expiresAt := issuedAt.Add(v.proofMaxAge + v.proofClockSkew).Unix()

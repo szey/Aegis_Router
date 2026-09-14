@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/szey/Aegis_Router/internal/executionconstraints"
 )
 
 type Route string
@@ -395,42 +397,44 @@ type ActionAuthorizationResponse struct {
 }
 
 type PermitVerification struct {
-	PermitID       string               `json:"permit_id,omitempty"`
-	RequestID      string               `json:"request_id,omitempty"`
-	PermitClass    string               `json:"permit_class,omitempty"`
-	ProfileID      string               `json:"profile_id,omitempty"`
-	Audience       string               `json:"audience,omitempty"`
-	Outcome        string               `json:"verification_result"`
-	Verified       bool                 `json:"verified"`
-	State          string               `json:"permit_state,omitempty"`
-	Obligations    ExecutionObligations `json:"obligations"`
-	VerifiedAt     time.Time            `json:"verified_at"`
-	EvidenceSource string               `json:"evidence_source"`
+	PermitID         string                       `json:"permit_id,omitempty"`
+	RequestID        string                       `json:"request_id,omitempty"`
+	PermitClass      string                       `json:"permit_class,omitempty"`
+	ProfileID        string                       `json:"profile_id,omitempty"`
+	Audience         string                       `json:"audience,omitempty"`
+	Outcome          string                       `json:"verification_result"`
+	Verified         bool                         `json:"verified"`
+	State            string                       `json:"permit_state,omitempty"`
+	Obligations      ExecutionObligations         `json:"obligations"`
+	ConstraintChecks []executionconstraints.Check `json:"constraint_checks,omitempty"`
+	VerifiedAt       time.Time                    `json:"verified_at"`
+	EvidenceSource   string                       `json:"evidence_source"`
 }
 
 type ExecutionReceipt struct {
-	RequestID             string              `json:"request_id"`
-	DecisionID            string              `json:"decision_id"`
-	PermitID              string              `json:"permit_id,omitempty"`
-	PermitClass           string              `json:"permit_class,omitempty"`
-	ProfileID             string              `json:"profile_id,omitempty"`
-	Audience              string              `json:"audience,omitempty"`
-	PrincipalID           string              `json:"principal_id"`
-	AgentID               string              `json:"agent_id"`
-	WorkloadID            string              `json:"workload_id"`
-	Tool                  string              `json:"tool"`
-	Capability            string              `json:"capability"`
-	Resource              string              `json:"resource"`
-	Operation             string              `json:"operation"`
-	ActionDigest          string              `json:"action_digest,omitempty"`
-	PolicyVersion         string              `json:"policy_version"`
-	AuthorizationDecision AuthorizationStatus `json:"authorization_decision"`
-	PermitState           string              `json:"permit_state,omitempty"`
-	VerificationOutcome   string              `json:"verification_outcome,omitempty"`
-	UpstreamAttempted     bool                `json:"upstream_attempted"`
-	ExecutionOutcome      string              `json:"execution_outcome,omitempty"`
-	Timestamp             time.Time           `json:"timestamp"`
-	EvidenceSource        RuntimeEventSource  `json:"evidence_source"`
+	RequestID             string                       `json:"request_id"`
+	DecisionID            string                       `json:"decision_id"`
+	PermitID              string                       `json:"permit_id,omitempty"`
+	PermitClass           string                       `json:"permit_class,omitempty"`
+	ProfileID             string                       `json:"profile_id,omitempty"`
+	Audience              string                       `json:"audience,omitempty"`
+	PrincipalID           string                       `json:"principal_id"`
+	AgentID               string                       `json:"agent_id"`
+	WorkloadID            string                       `json:"workload_id"`
+	Tool                  string                       `json:"tool"`
+	Capability            string                       `json:"capability"`
+	Resource              string                       `json:"resource"`
+	Operation             string                       `json:"operation"`
+	ActionDigest          string                       `json:"action_digest,omitempty"`
+	PolicyVersion         string                       `json:"policy_version"`
+	AuthorizationDecision AuthorizationStatus          `json:"authorization_decision"`
+	PermitState           string                       `json:"permit_state,omitempty"`
+	VerificationOutcome   string                       `json:"verification_outcome,omitempty"`
+	ConstraintChecks      []executionconstraints.Check `json:"constraint_checks,omitempty"`
+	UpstreamAttempted     bool                         `json:"upstream_attempted"`
+	ExecutionOutcome      string                       `json:"execution_outcome,omitempty"`
+	Timestamp             time.Time                    `json:"timestamp"`
+	EvidenceSource        RuntimeEventSource           `json:"evidence_source"`
 }
 
 type RuntimeEventSource string

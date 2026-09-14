@@ -292,7 +292,7 @@ func newFixture(t *testing.T, ttl time.Duration) *fixture {
 	return newFixtureWithClass(t, ttl, permit.ClassExecution)
 }
 
-func newFixtureWithClass(t *testing.T, ttl time.Duration, permitClass permit.Class) *fixture {
+func newFixtureWithClass(t *testing.T, ttl time.Duration, permitClass permit.Class, required ...permit.Obligations) *fixture {
 	t.Helper()
 	now := time.Date(2026, 9, 4, 8, 0, 0, 0, time.UTC)
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -332,6 +332,10 @@ func newFixtureWithClass(t *testing.T, ttl time.Duration, permitClass permit.Cla
 			t.Fatal(err)
 		}
 	}
+	var obligations permit.Obligations
+	if len(required) > 0 {
+		obligations = required[0]
+	}
 	issued, err := issuer.Issue(permit.IssueRequest{
 		PermitID: "p_fixture", PermitClass: permitClass, RequestID: "request-01", PrincipalID: action.PrincipalID,
 		AgentID: action.AgentID, WorkloadID: action.WorkloadID,
@@ -340,7 +344,7 @@ func newFixtureWithClass(t *testing.T, ttl time.Duration, permitClass permit.Cla
 		DelegatedAuthorityFingerprint: action.DelegatedAuthorityFingerprint,
 		Tool:                          action.Tool, Capability: action.Capability, Resource: action.Resource, Operation: action.Operation,
 		ProfileID: action.ProfileID, Audience: action.Audience,
-		ActionDigest: digest, PolicyVersion: "policy-v7", TTL: ttl,
+		ActionDigest: digest, PolicyVersion: "policy-v7", TTL: ttl, Obligations: obligations,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -73,7 +73,12 @@ func New(gate Gate, registry *semanticaction.Registry, controlUpstreamURL string
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &Proxy{gate: gate, registry: registry, controlUpstream: target, client: client}, nil
+	// Never mutate a caller's shared client, and never follow a redirect away
+	// from the server-owned route (including same-origin redirects). A supplied
+	// client's permissive redirect callback cannot weaken this boundary.
+	boundedClient := *client
+	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &Proxy{gate: gate, registry: registry, controlUpstream: target, client: &boundedClient}, nil
 }
 
 type rpcRequest struct {
@@ -202,32 +207,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		proofToken = proofValues[0]
 	}
 	// This single call is the commit point: it validates every Permit, proof,
-	// action and replay binding, then atomically consumes before any upstream
-	// side effect. Upstream failure or timeout never restores the Permit.
+	// action, signed obligation and replay binding, then atomically consumes
+	// before any upstream side effect. Failure or timeout never restores it.
 	verification, err := p.gate.VerifyExecutionAndConsume(token, proofToken, action, req.Method, req.URL.Path)
 	if err != nil {
 		writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not record execution verification", nil)
 		return
 	}
 	if !verification.Verified || verification.Outcome != "VERIFIED" {
-		writeRPCError(w, http.StatusForbidden, rpc.ID, -32006, "Aegis execution authorization rejected", map[string]string{
+		writeRPCError(w, http.StatusForbidden, rpc.ID, -32006, "Aegis execution authorization rejected", map[string]any{
 			"verification_result": verification.Outcome, "permit_id": verification.PermitID,
-		})
-		return
-	}
-	if verification.Obligations.IsolationRequired || verification.Obligations.HumanApprovalRequired {
-		_, completionErr := p.gate.CompleteVerifiedExecution(models.ExecutionCompletion{
-			RequestID: verification.RequestID, PermitID: verification.PermitID, Status: "terminated",
-			BoundaryOutcome: "UNSATISFIED_OBLIGATION",
-		})
-		if completionErr != nil {
-			writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not record the unsatisfied execution obligation", nil)
-			return
-		}
-		writeRPCError(w, http.StatusForbidden, rpc.ID, -32004, "The focused MCP proxy cannot satisfy this signed execution obligation", map[string]any{
-			"verification_result": "UNSATISFIED_OBLIGATION",
-			"permit_id":           verification.PermitID,
-			"obligations":         verification.Obligations,
+			"constraint_checks": verification.ConstraintChecks,
 		})
 		return
 	}
@@ -277,6 +267,23 @@ func (p *Proxy) forward(w http.ResponseWriter, inbound *http.Request, body []byt
 		return
 	}
 	defer response.Body.Close()
+	if response.StatusCode >= 300 && response.StatusCode < 400 {
+		if verification.Verified {
+			if _, err := p.gate.CompleteVerifiedExecution(models.ExecutionCompletion{
+				RequestID: verification.RequestID, PermitID: verification.PermitID, Status: "failed",
+				UpstreamAttempted: true, BoundaryOutcome: "UPSTREAM_REDIRECT_BLOCKED",
+			}); err != nil {
+				w.Header().Set("X-Aegis-Audit-Status", "completion-record-failed")
+			}
+		}
+		// Do not forward Location or the redirect response body to a caller that
+		// might follow it independently. The original dispatch still consumed
+		// the Permit and its remote business outcome must not be inferred here.
+		writeRPCError(w, http.StatusBadGateway, nil, -32002, "MCP upstream redirect rejected", map[string]string{
+			"execution_outcome": "UPSTREAM_REDIRECT_BLOCKED",
+		})
+		return
+	}
 
 	if verification.Verified {
 		now := time.Now().UTC()

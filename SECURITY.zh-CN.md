@@ -4,6 +4,8 @@
 
 本文适用于 [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router) 中的 **Aegis_Router — AI Agent 动作的执行许可**。
 
+2026-09-13 的[重设计提案](docs/manus-redesign.zh-CN.md)已有 [M1 实现](docs/m1-execution-admission.zh-CN.md)：消费前拒绝不支持的执行要求，以及固定路由禁止重定向。外部控制器、环境 lease 和独立持久审计仍待实现。签名 lease 不等于硬件 attestation，工具调用 Permit 不等于沙箱逃逸防护。
+
 ## 报告漏洞
 
 请不要在公开 Issue 中披露疑似漏洞。如果仓库已启用 GitHub Private Vulnerability Reporting，请使用该功能，并提供：受影响版本/Commit、最小安全复现、预期与实际验证结果、上游工具是否被调用、潜在影响和可行缓解措施。
@@ -79,7 +81,7 @@ Proxy 会转发已配置 upstream 的 `server/discover` 与 `tools/list` 响应�
 
 Policy 与受支持的两项语义配置保持确定性。Policy 先判断请求资格；只有 Policy 授权的请求才进入服务端语义解析。Policy 授权与语义解析成功两者缺一不可，共同决定 Permit 是否签发及其 signed obligations。当前可执行流程支持 `AUTHORIZED / DENIED`；模型虽能表达 `REQUIRES_APPROVAL`，但没有受支持的审批完成流程，因此不能产生可执行 Permit。Risk score 与 detection findings 只进入 `advisory_signals`，不能覆盖拒绝、创建授权、签发 Permit 或选择 executor。只有显式的确定性 Policy/配置映射才能生成 `human_approval_required`、`isolation_required`、`enhanced_audit_required` 等义务。
 
-Aegis 不实现沙箱。`isolation_required: true` 只要求外部 executor 提供隔离；当仍需要隔离或人工批准时，focused MCP Proxy 会以 `EXECUTION_OBLIGATION_UNSATISFIED` fail closed，而不是转发。`read_only` 与 `network_egress_denied` 仍是已签名要求，必须由另一个独立可信的 executor/control 真正落实。兼容输出中的 `SANDBOX` 也是 profile hint。不要声称 Aegis 提供 Docker、gVisor、Firecracker、文件系统或网络隔离。
+Aegis 没有沙箱或外部约束实施方。五类签名要求均在 nonce/Permit 消费前以 `UNSATISFIED_OBLIGATION` 默认拒绝，receipt 记录 `constraint_checks` 与 `EXECUTION_OBLIGATION_UNSATISFIED`。目标只读要求不能由 write/transfer 动作或 Agent 自报证明；本地 JSONL 不能满足增强持久审计。因此默认禁网策略的真实调用不会转发。即使自定义 HTTP client 允许重定向，MCP 也会拒绝，原 Permit 保持已消费，记录 `UPSTREAM_REDIRECT_BLOCKED`，不转发 Location 或重定向正文。这些控制不提供 DNS/IP 固定、宿主禁网或业务提交确定性。
 
 ## 审计与敏感数据
 

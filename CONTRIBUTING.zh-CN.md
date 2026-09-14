@@ -35,7 +35,7 @@ CanonicalAction → deterministic authorization → signed Permit
 - Permit 在上游前消费；上游失败/timeout 不得恢复，重试必须重新授权，禁止增加 `unconsume`；
 - `permit_token`、签名私钥、raw bearer/delegated token、秘密值和原始敏感参数不得进入日志、UI 或错误消息；
 - authorization 保持确定性；risk/detection 只进入 `advisory_signals`，不能改变状态、签发 Permit 或生成 obligations；
-- `isolation_required` 是外部执行义务，不是 Aegis 已实现沙箱；隔离或人工批准尚未满足时，focused MCP Proxy 不得转发；
+- 五类签名执行要求均在 nonce/Permit 消费前检查；不支持时 Permit 保持 `ISSUED`、上游零调用；不能用开关或 Agent 自报替代可信实施方；
 - 运行时证据保留 source/trust；`agent_self_reported` 或 `simulated_demo` 不得冒充独立观察；
 - 未接入覆盖保持 `UNKNOWN / not instrumented`。
 

@@ -68,7 +68,7 @@
 - audit/token privacy；
 - failed verification 后 MCP upstream 调用次数为零；
 - MCP `2026-07-28` Header/body/version mismatch、重复 JSON key、任意 Header/Session 上下文、未绑定 Tool `_meta`、MRTR 或 `Mcp-Param-*` 输入在上游前 fail closed 或被剥离；
-- Permit 含尚未满足的隔离或人工批准 obligation 时，产生 `EXECUTION_OBLIGATION_UNSATISFIED`，上游调用次数为 0；
+- Permit 含任何必需的隔离、禁网、只读、人工审批或增强审计要求时，在消费前产生 `EXECUTION_OBLIGATION_UNSATISFIED`，上游调用次数为 0；当前版本没有可信实施方；
 - Demo telemetry 始终为 `simulated_demo`；
 - `go test ./...`、`go test -race ./...`、`go vet ./...` 与前端检查/构建。
 

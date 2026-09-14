@@ -133,6 +133,7 @@ func TestTrustedProxyAuthorizationExecutesOneNormalizedPaymentThroughMCP(t *test
 		t.Fatal(err)
 	}
 	cfg.SemanticActions.PaymentSendV1.UpstreamURL = upstream.URL
+	cfg = mockExecutionPolicy(cfg, "finance-agent", "payment_transfer", "account-123")
 	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
 	store, err := audit.NewStore(auditPath)
 	if err != nil {
@@ -297,6 +298,7 @@ func TestTrustedProxyAuthorizationExecutesWorkspaceWriteThroughSharedMCPBoundary
 	}
 	cfg.SemanticActions.PaymentSendV1.UpstreamURL = paymentUpstream.URL
 	cfg.SemanticActions.WorkspaceWriteV1.UpstreamURL = workspaceUpstream.URL
+	cfg = mockExecutionPolicy(cfg, "workspace-agent", "workspace_write", "demo-workspace")
 	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
 	store, err := audit.NewStore(auditPath)
 	if err != nil {

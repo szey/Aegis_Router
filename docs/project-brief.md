@@ -4,6 +4,8 @@ English | [简体中文](project-brief.zh-CN.md)
 
 > **Execution Permits for AI Agent Actions**
 
+The 2026-09-13 [redesign proposal](manus-redesign.md) has an implemented first stage: [M1 execution admission and fixed routes](m1-execution-admission.md). Unsupported obligations reject before consumption; redirects cannot expand the target. Durable state, environment leases and lifecycle remain subsequent stages. The project contract is unchanged.
+
 ## One-line position
 
 Aegis_Router is a framework-agnostic execution-permit layer with server-owned semantic action profiles. It first evaluates deterministic Policy eligibility, then resolves a granted request into an exact normalized action, issues a short-lived, signed, action-bound, single-use permit, and requires the MCP execution boundary to verify and consume it before the real side effect.
@@ -127,7 +129,7 @@ Policy first evaluates the structured request for deterministic eligibility. Onl
 
 Risk/detection remain optional advisory metadata under `advisory_signals`; they cannot change authorization status, create a grant, issue a Permit, or select an executor. Obligations such as `human_approval_required`, `isolation_required`, or `enhanced_audit_required` require an explicit deterministic Policy/configuration mapping.
 
-An external executor fulfills `isolation_required: true`. Aegis implements no sandbox backend, and its focused MCP proxy refuses to forward when isolation or human approval remains required. Read-only and network-egress obligations still require a trusted external executor/control to enforce the upstream tool's real behavior. `RESTRICT/SANDBOX` in compatibility fields is only an execution-profile hint.
+All five signed obligations require an independent, trusted implementation. M1 has none connected, so the core rejects required isolation, denied egress, read-only behavior, human approval or enhanced audit before consumption. This deliberately blocks the shipped deny-egress payment/workspace grants from real forwarding. The response and receipt explain scope and rejection in `constraint_checks`; they do not assert enforcement. MCP also refuses redirects and retains consumption after the original dispatch.
 
 ## Audit Receipt and Runtime Evidence
 

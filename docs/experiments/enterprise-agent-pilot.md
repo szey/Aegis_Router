@@ -68,7 +68,7 @@ Before any company-device work, the development environment must pass:
 - audit/token privacy;
 - zero MCP upstream calls after failed verification;
 - MCP `2026-07-28` header/body/version mismatch, duplicate JSON keys, arbitrary headers/session context, unbound tool `_meta`, MRTR, or `Mcp-Param-*` inputs fail closed or are stripped before upstream;
-- a Permit carrying unsatisfied isolation or human-approval obligations produces `EXECUTION_OBLIGATION_UNSATISFIED`, with zero upstream calls;
+- a Permit carrying any required isolation, denied-egress, read-only, human-approval or enhanced-audit obligation produces `EXECUTION_OBLIGATION_UNSATISFIED` before consumption, with zero upstream calls; the current release has no trusted satisfier;
 - Demo telemetry remains `simulated_demo`;
 - `go test ./...`, `go test -race ./...`, `go vet ./...`, and frontend check/build.
 
