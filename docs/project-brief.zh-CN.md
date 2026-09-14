@@ -119,9 +119,9 @@ MCP 是 focused MVP 唯一的生产形态 Adapter。`tools/call` 在消费 execu
 
 `payment.send/v1` 只接受正整数最小货币单位金额、allowlist 币种和 allowlist 收款人，并按币种限制单笔金额。`workspace.write/v1` 只接受 JSON string `path` 与 `content`；path 是逻辑相对 `/` 分隔标识，不允许反斜杠、盘符前缀、空/`.`/`..`/`~` segment、首尾斜杠、控制字符或 normalization。示例限制为 path 1,024 bytes、content 4 KiB。它只转发到 mock/逻辑 upstream，不写主机文件；原始 content 参与摘要，但绝不进入正常审计。
 
-Adapter 不能在验证失败时“先调用、后告警”，也不能仅凭 `permit_id` 转发。上游 MCP 的 TLS、认证、工具副作用和部署绕过仍由部署方独立处理。
+Adapter 不能在验证失败时“先调用、后告警”，也不能仅凭 `permit_id` 转发。服务端拥有的 upstream URL/resource/audience 只表示 Aegis 绑定了该配置，不证明端点或云资源归预期组织所有。资源归属、上游 MCP 的 TLS/认证、工具副作用和部署绕过仍由部署方独立处理。
 
-当前 Adapter 对 MCP `2026-07-28` 校验 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 JSON-RPC 正文的一致性；拒绝重复 JSON key 与未绑定的 Tool `_meta`；剥离任意 Header/Session 上下文后再重建最小传输/路由 Header。它只实现 HTTP `POST` 的 `server/discover`、`tools/list` 与 permit-gated `tools/call` focused subset；Base64-wrapped `Mcp-Name`、MRTR 字段和 Schema 驱动的 `Mcp-Param-*` 暂时 fail closed，不声明完整协议 conformance。Discovery/list 响应由 upstream 转发，因此其中的 description、instructions 和其他 metadata 是不可信 Host 输入，而不是经过 Aegis sanitization 的内容。
+当前 Adapter 对 MCP `2026-07-28` 校验 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 JSON-RPC 正文的一致性；拒绝重复 JSON key、UTF-8-BOM-prefixed payload 与未绑定的 Tool `_meta`；剥离任意 Header/Session 上下文后再重建最小传输/路由 Header。它只在精确 `POST /mcp` 路由上实现 `server/discover`、`tools/list` 与 permit-gated `tools/call` focused subset；`/sse` 后缀路径不进入 Proxy，Final SEP-2640 Skills extension 的 `skills/list`/`skills/get` 也 fail closed。Base64-wrapped `Mcp-Name`、MRTR 字段和 Schema 驱动的 `Mcp-Param-*` 暂时 fail closed，不声明完整协议 conformance。Discovery/list 响应由 upstream 转发，因此其中的 description、instructions 和其他 metadata 是不可信 Host 输入，而不是经过 Aegis sanitization 的内容。
 
 ## Policy、Risk 与 obligations
 

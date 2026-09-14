@@ -816,6 +816,7 @@ func TestModernMCPHeaderOrBodyAmbiguityNeverInvokesUpstream(t *testing.T) {
 		{"protocol metadata mismatch", bytes.Replace(validBody, []byte(mcp.ProtocolVersion20260728), []byte("2025-11-25"), 1), nil, -32020},
 		{"unknown future protocol", bytes.Replace(validBody, []byte(mcp.ProtocolVersion20260728), []byte("2099-01-01"), 1), func(header http.Header) { header.Set(mcp.HeaderProtocolVersion, "2099-01-01") }, -32022},
 		{"custom mirrored header without schema", validBody, func(header http.Header) { header.Set("Mcp-Param-Region", "us-east-1") }, -32020},
+		{"UTF-8 BOM before JSON", append([]byte{0xef, 0xbb, 0xbf}, validBody...), nil, -32700},
 		{"duplicate tool name", []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"coder","name":"admin-tool","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`), nil, -32700},
 		{"unbound MRTR params", []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"coder","arguments":{},"requestState":"opaque","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`), nil, -32602},
 		{"unbound tool metadata", []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"coder","arguments":{"task":"preview"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","vendor.example/actionMode":"admin"}}}`), nil, -32602},
@@ -837,6 +838,44 @@ func TestModernMCPHeaderOrBodyAmbiguityNeverInvokesUpstream(t *testing.T) {
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("ambiguous modern MCP request invoked upstream %d times", calls.Load())
+	}
+	permitRecord, ok := r.GetPermit(authorized.Permit.PermitID)
+	if !ok || permitRecord.State != "ISSUED" {
+		t.Fatalf("ambiguous modern MCP request consumed the Permit: %#v exists=%v", permitRecord, ok)
+	}
+}
+
+func TestModernSkillsExtensionMethodsFailClosed(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	r, _, _ := testRouter(t)
+	proxy := newProxy(t, r, upstream.URL, nil)
+
+	tests := []struct {
+		method string
+		params string
+	}{
+		{"skills/list", `{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}`},
+		{"skills/get", `{"uri":"skill://example.invalid/research","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.method, func(t *testing.T) {
+			body := []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":%q,"params":%s}`, test.method, test.params))
+			request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
+			setModernHeaders(request.Header, test.method, "")
+			response := httptest.NewRecorder()
+			proxy.ServeHTTP(response, request)
+			if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":-32601`) {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+		})
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("unsupported Skills extension request invoked upstream %d times", calls.Load())
 	}
 }
 

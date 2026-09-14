@@ -65,11 +65,11 @@ MCP 是当前唯一的生产形态 Adapter。Adapter 只接受签名绑定 `perm
 
 在 `permit_class` 引入之前签发的 Token 会被刻意视为无效，必须重新授权和签发；不得从缺失 claim 推断为 `execution`。
 
-MCP `2026-07-28` 的 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 JSON-RPC 正文必须一致；Proxy 拒绝重复 JSON key 和未绑定的 Tool `_meta`，剥离任意入站 Header/Session 上下文，并只重建最小传输信息与标准路由 Header。Base64-wrapped `Mcp-Name` 当前不会被解码，而是 fail closed。当前 focused subset 不缓存 Tool Schema，因此无法可靠校验 `Mcp-Param-*`，也没有把 MRTR `inputResponses`/`requestState` 纳入动作摘要；这些输入一律在上游前 fail closed。不要把这一子集描述为完整 MCP conformance。
+MCP `2026-07-28` 的 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 JSON-RPC 正文必须一致；Proxy 拒绝重复 JSON key、UTF-8-BOM-prefixed payload 和未绑定的 Tool `_meta`，剥离任意入站 Header/Session 上下文，并只重建最小传输信息与标准路由 Header。只有精确 `POST /mcp` 路由会进入 Proxy；`/sse` 等后缀路径不会进入。Final SEP-2640 Skills extension 的 `skills/list`/`skills/get` 不在 focused subset 并 fail closed。Base64-wrapped `Mcp-Name` 当前不会被解码，而是 fail closed。当前 focused subset 不缓存 Tool Schema，因此无法可靠校验 `Mcp-Param-*`，也没有把 MRTR `inputResponses`/`requestState` 纳入动作摘要；这些输入一律在上游前 fail closed。不要把这一子集描述为完整 MCP conformance。
 
 Proxy 会转发已配置 upstream 的 `server/discover` 与 `tools/list` 响应。返回的 description、instructions 和其他 metadata 都是不可信内容，Aegis 不对其进行 sanitization；Host 不得在缺少自身隔离与审查时把它们放入可信 Prompt。该限制不会绕过后续真实 `tools/call` 的独立 Permit gate。
 
-保护只覆盖经过该 Adapter 的调用。Trusted Intake 只让身份来源显式、可拒绝和可审计，并不实现 IAM/SSO/RBAC；真实集成仍必须由已认证的中间件提供上下文。MCP 执行请求里的绑定 Header 只有在与已签名 Permit 完全匹配时才有效，本身不是身份凭据。上游 TLS/认证、transport framing、工具自身副作用、部署绕过和 confused-deputy 风险仍需要独立威胁建模。
+保护只覆盖经过该 Adapter 的调用。Trusted Intake 只让身份来源显式、可拒绝和可审计，并不实现 IAM/SSO/RBAC；真实集成仍必须由已认证的中间件提供上下文。MCP 执行请求里的绑定 Header 只有在与已签名 Permit 完全匹配时才有效，本身不是身份凭据。服务端配置的 upstream URL/resource/audience 只证明 Aegis 绑定了那份配置，不证明该端点或云资源由预期组织拥有。部署方必须独立验证资源归属、上游 TLS/认证、transport framing、工具自身副作用、部署绕过和 confused-deputy 风险。
 
 当前恰好有两个编译进服务端的语义映射，并通过同一个不可变 registry 分发：`payment.send/v1` 与逻辑 `workspace.write/v1`。重复 profile ID、有歧义的 Tool 映射、未知 Tool、缺失映射及冲突的调用方声明全部 fail closed；调用方不能加载代码、选择 profile 或指定 upstream URL。授权与 MCP 执行使用同一个 registry 和 profile parser，每个已解析 profile 提供自己固定的 upstream target。
 

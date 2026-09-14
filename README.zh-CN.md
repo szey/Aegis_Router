@@ -111,7 +111,7 @@ MCP client
 
 任何验证失败都必须发生在上游 `tools/call` 之前。即使动作字段完全匹配，`simulation` Token 也会在消费和上游调用之前被拒绝。此里程碑不实现 HTTP、A2A、数据库、Shell 或云策略 Adapter。
 
-配置一个服务端拥有的 control upstream 即可挂载 permit-gated `POST /mcp`。`--mcp-upstream` 必须与某个内置 profile 的 `upstream_url` 完全相同；协议初始化/列表兼容方法使用该目标，而每个 `tools/call` 会被发送到其已解析 profile 自己拥有的 upstream。下面的 `--allow-development-intake` 只允许 loopback 请求将 body 身份作为 `development_only` 上下文，不能用于生产：
+配置一个服务端拥有的 control upstream 即可挂载 permit-gated `POST /mcp`。`--mcp-upstream` 必须与某个内置 profile 的 `upstream_url` 完全相同；协议初始化/列表兼容方法使用该目标，而每个 `tools/call` 会被发送到其已解析 profile 自己拥有的 upstream。这一配置绑定不会自动证明端点/云资源归属，部署方仍须独立验证资源所有权、TLS 与上游认证。下面的 `--allow-development-intake` 只允许 loopback 请求将 body 身份作为 `development_only` 上下文，不能用于生产：
 
 ```bash
 go run ./cmd/server --allow-development-intake \
@@ -123,7 +123,7 @@ go run ./cmd/server --allow-development-intake \
 
 此外，真实 `tools/call` 必须提供唯一一个 `X-Aegis-Execution-Proof` Header。Proof 是 Ed25519 签名的 compact Token，绑定 `permit_id`、`action_digest`、`POST`、`/mcp`、签发时间和 nonce；必须在 30 秒窗口内（允许 5 秒时钟偏差），并由受签名 Permit 指定的已注册 workload key 生成。缺失/无效 Proof、错 workload 和重复 nonce 都返回 `WRONG_EXECUTOR`，且不消费 Permit。Proxy 绝不向 upstream 转发 Proof。
 
-对 MCP `2026-07-28` 请求，Proxy 还要求 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 `params._meta`/JSON-RPC 正文精确一致，并根据已验证正文重建转发 Header；重复 JSON key 会在 Permit 验证前拒绝。`tools/call` 的 `_meta` 只接受已校验的协议版本，未绑定的扩展元数据会被拒绝。当前是刻意收窄的 HTTP `POST` 子集：支持 `server/discover`、`tools/list` 和 permit-gated `tools/call`，不声称完整 MCP conformance。这个子集不会解码 Base64-wrapped `Mcp-Name`；即使解码值等于受支持的 ASCII Tool 名，也会 fail closed。MRTR 的 `inputResponses`/`requestState` 与需要 Schema 感知验证的 `Mcp-Param-*` 暂未纳入 CanonicalAction，因此同样 fail closed；未声明现代版本的旧 `initialize` 路径只作为兼容能力保留。
+对 MCP `2026-07-28` 请求，Proxy 还要求 `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 与 `params._meta`/JSON-RPC 正文精确一致，并根据已验证正文重建转发 Header；重复 JSON key 和带 UTF-8 BOM 的 payload 会在 Permit 验证前拒绝。`tools/call` 的 `_meta` 只接受已校验的协议版本，未绑定的扩展元数据会被拒绝。当前是刻意收窄的 HTTP `POST` 子集：仅在精确 `POST /mcp` 路由上支持 `server/discover`、`tools/list` 和 permit-gated `tools/call`，不声称完整 MCP conformance。Final SEP-2640 的 `skills/list`/`skills/get` 不在此子集并 fail closed；`/sse` 及其他后缀路径也不会进入 MCP Proxy。这个子集不会解码 Base64-wrapped `Mcp-Name`；即使解码值等于受支持的 ASCII Tool 名，也会 fail closed。MRTR 的 `inputResponses`/`requestState` 与需要 Schema 感知验证的 `Mcp-Param-*` 暂未纳入 CanonicalAction，因此同样 fail closed；未声明现代版本的旧 `initialize` 路径只作为兼容能力保留。
 
 `server/discover` 与 `tools/list` 响应由已配置 upstream 转发而来。其中的 description、instructions 与其他 metadata 始终是不可信上游内容：Aegis 不会清洗它们，也不会把它们变成可安全写入 system prompt 的内容。Host 必须隔离并审查这些输入；由此形成的任何真实 `tools/call` 仍必须独立通过 Policy、语义 profile 与 Execution Permit 边界。
 

@@ -2,7 +2,7 @@
 
 [English](research-product-mapping-iteration.md) | 简体中文
 
-最近产品复核：2026-09-13（重设计研究；未重新核验全部历史标准条目）
+最近产品复核：2026-09-14（周度增量复核）
 
 本文是 Aegis_Router 的统一调研登记：标准、事故、媒体/安全公司建议、社区痛点、开源借鉴、处置决定与产品映射均在这里维护。中文是语义工作源，英文必须在同一次变更中同步。
 
@@ -226,3 +226,24 @@ collect evidence → trace primary source → choose disposition
 基线中五类要求均在核心被消费，禁网 MCP 调用到达上游；十组重定向组合均到达第二 receiver。修复后这些负向条件通过，同时保留两个 profile 的无附加约束合成成功路径和原有身份、参数、用途、replay 测试。默认示例策略继续要求禁网，真实执行会拒绝；没有为恢复旧行为放宽配置。
 
 `go test ./...`、`go vet ./...`、前端类型检查与构建通过。Windows 缺少 cgo 工具链，本机 race 未运行；Docker Linux daemon 未运行，本机构建未完成。最终 Linux CI 状态以本次 GitHub 提交对应的工作流为准。外部来源未因这些本地测试被升级；没有声称完成真实沙箱、持久恢复或业务 exactly-once。
+
+## 14. 2026-09-14 周度增量复核
+
+复核窗口为 2026-09-08 至 2026-09-14，产品/代码基线是 `02a9913`。本轮查看了官方规范与安全公告、事故方更新、维护者提交/发行、正规媒体、安全供应商与公开社区。二次报道已追溯至 Anthropic、OpenAI、AWS、OWASP、MCP 维护者和 ToolHive 公告；受限于表单的供应商报告不冒充全文审查。
+
+| research_id | 来源、机制、前提与限制 | 来源建议、冲突/副作用与本项目适用性 | 单一处置与交付状态 |
+|---|---|---|---|
+| `REV-2026-09-14-001` | [MCP latest](https://modelcontextprotocol.io/specification/latest) 仍是 `2026-07-28`；[OWASP 2026 Top 10](https://genai.owasp.org/resource/owasp-genai-llm-top-10-2026/)、[Agentic Top 10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)、NIST AI RMF 1.0/AI 600-1 没有发布替代版本。[NIST](https://www.nist.gov/itl/ai-risk-management-framework) 明确 RMF 1.0 正在修订·官方全文 `S1/V1` | 修订未发布，不能用“即将更新”改写已实现映射；本轮没有会改变 execution-permit property 的新正式基线 | `docs_only` / `completed`：保持当前版本，下轮继续监测 NIST 正式修订 |
+| `REV-2026-09-14-002` | ToolHive 2026-09-08 公开公告家族：[OIDC 配置已声明但中间件收到 nil](https://github.com/stacklok/toolhive/security/advisories/GHSA-gc9p-rmpx-vv9j)、[`/sse` 后缀绕过授权](https://github.com/stacklok/toolhive/security/advisories/GHSA-h4mf-84xq-q2fc)、[UTF-8 BOM 导致 parser/filter 分歧](https://github.com/stacklok/toolhive/security/advisories/GHSA-9v4w-3mqh-6vmm)、[远程 health redirect SSRF](https://github.com/stacklok/toolhive/security/advisories/GHSA-vc62-q48c-5cmw)·维护者全文 `S1/V1`；ToolHive 于 2026-09-14 检索为 2,163 stars，复核 v0.49.0 commit `e532cf07` | 根因分别是并行配置载体失配、路径后缀豁免、解析器不一致和跟随目标可控重定向；来源建议单一权威配置、精确路由、统一解析和同主机重定向策略。Aegis 无 OIDC/health pinger，但 parser 与路由机制直接相关 | `fixture` / `completed`：新增 BOM 输入及 `/sse`、`/x/sse`、`/mcp/sse` 负向用例；均在 upstream 前拒绝。既有 M1 重定向用例保留。这验证 Aegis 本地边界 `V2`，不是重放 ToolHive 漏洞 |
+| `REV-2026-09-14-003` | [MCP SEP-2640 Skills Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640) 于 2026-09-11 进入 Final；[ToolHive v0.49.0](https://github.com/stacklok/toolhive/releases/tag/v0.49.0) 已对 `skills/list`/`skills/get` 增加 Cedar 映射·维护者全文 `S1/V1` | Skills 传输和生命周期不是 Aegis 两个语义 profile 或 execution-permit 边界；支持它会扩展协议和供应链范围 | `fixture` / `completed`：文档明确 Skills extension 不在 focused subset，`skills/list`/`skills/get` 回归用例证明 fail closed。不增加 Skill/plugin 系统 |
+| `REV-2026-09-14-004` | OWASP Agent Control Standard 现有 v0.1.0（tag v0.1.1）在 `7d2dd3c6` 已有 AGT reference implementation，但[conformance 仍为自声明](https://github.com/GenAI-Security-Project/agent-control-standard/issues/19)，[negative vectors v0.2](https://github.com/GenAI-Security-Project/agent-control-standard/issues/53) 仍 deferred，[AGT dogfood report](https://github.com/GenAI-Security-Project/agent-control-standard/issues/92) 仍在 backlog·官方仓库 `S1/V1`；2026-09-14 为 115 stars | 参考实现增加了可读机制，但可独立反证的一致性证据仍未完成；自声明不能提升 Aegis 验证等级 | `defer` / `planned`：保持不声称 ACS-compatible，等可执行 conformance 和稳定映射 |
+| `REV-2026-09-14-005` | [OWASP MCP Tool Poisoning](https://community.owasp.org/attacks/MCP_Tool_Poisoning) 页面把不可信 Tool 返回进入 LLM context 定义为连接时/运行时信任缺口，建议结构化输出、最小权限、执行层强制和敏感操作外部确认·官方全文 `S1/V1` | 结构验证可减少部分输入差异，但无法完整识别自由文本中的间接注入；Aegis 只能确保后续真实动作仍经 Permit gate | `docs_only` / `completed`：继续将 discover/list 返回标为不可信 Host 输入；不建 Prompt classifier、内容清洗平台或审批系统 |
+| `REV-2026-09-14-006` | [Anthropic 对四起真实第三方未授权访问的复盘](https://www.anthropic.com/research/alignment-assessment-cybersecurity-incidents) 指出共同前提是测试环境误接开放 Internet、产品 safeguards 关闭；[OpenAI 2026-09-11 更新](https://openai.com/hugging-face-incident-and-misalignment/) 对 RubyGems 恶意包具体指称尚未验证·事故方全文 `S1/V1` | 前者扩大 transcript 复查并委托 METR 独立调查；但监控/沙箱和模型对齐不由 Aegis 提供。后者的未验证说法不计为新事故 | `docs_only` / `completed`：保留“模拟判断不能证明环境权限”和外部隔离责任；不扩展 sandbox/EDR/意图分类 |
+| `REV-2026-09-14-007` | [AWS 2026-105-AWS](https://aws.amazon.com/security/security-bulletins/2026-105-aws/) 披露 Security Agent plugin `<1.1.0` 和 MCP server `<0.2.0` 未验证可预测 S3 bucket 的归属，可暴露工作区归档·厂商安全公告全文 `S1/V1` | 建议升级并核对/预创建账户自有 bucket。Aegis 签名绑定服务端配置的 resource/audience，但不证明该网址或云资源真由预期组织控制 | `docs_only` / `completed`：在安全边界明确外部资源归属/TLS/认证需部署方独立验证；不增加 AWS/S3 集成 |
+| `REV-2026-09-14-008` | [Nightfall 2026-09-09 早期访问发布](https://www.nightfall.ai/news/nightfall-launches-mcp-gateway-to-govern-ai-agents-before-they-act)宣称 inline MCP 强制/凭据代理；Reco 供应商新闻稿声称分析 500 个公开 MCP server，但[全报告需表单](https://www.globenewswire.com/news-release/2026/08/26/3351417/0/en/reco-finds-four-in-five-ai-tools-operate-without-it-oversight-in-state-of-agent-security-2026-report.html)·`S3/V0`；社区继续要求 [per-tool 确定性策略](https://www.reddit.com/r/MCPservers/comments/1wbjf8w/anyone_else_struggling_with_mcp_security_now_that/) 与[“Policy 测试不等于上游未调用”的集成测试](https://www.reddit.com/r/mcp/comments/1wbzkpb/how_do_you_test_that_an_ai_agents_permissions/)·`S4/V1` | 供应商声称有商业利益且缺少可重复实验；社区建议与既有 deterministic Policy + upstream-not-called fixtures 重复，不证明需要动态 LLM judge 或 Inventory | `docs_only` / `completed`：不新增产品能力；保留当前 Permit 边界、负向集成测试和非目标 |
+
+本轮的可证伪 fixture 假设是：“若 Aegis 只在精确 `POST /mcp` 路由上执行授权，并在单一 canonical parser 中拒绝 BOM，那么 `/sse` 后缀请求、BOM-prefixed `tools/call` 和未支持的 Skills 方法的 upstream 调用次数均必须为 0。”负向验收门槛为三类输入全部拒绝、不消费 Permit、不调用 upstream；对照为现有合法 `tools/call` 测试仍成功。新 fixture 在安全合成 upstream 上运行，不含真实攻击目标或公司数据。
+
+本轮只增加回归 fixture 和中英文边界说明，不改运行时逻辑、依赖、语义 profile 或产品范围。未自动提交、推送、部署或访问公司设备。
+
+验证：项目契约校验、定向新 fixture、`go test ./...`、`go vet ./...`、`npm run check:web` 和 `npm run build:web -- --log-level=warning` 均退出 0。`go test -race ./...` 先因 `CGO_ENABLED=0` 失败；显式设为 1 后仍因 PATH 中没有 `gcc` 失败，因此本工作树没有完成 race 验证。`docker build .` 因 Docker Desktop Linux engine named pipe 不存在而失败；不记为通过。

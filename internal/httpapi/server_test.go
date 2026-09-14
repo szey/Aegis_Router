@@ -55,6 +55,40 @@ func TestLegacyRouteCannotReachExecutionPermitBoundary(t *testing.T) {
 	}
 }
 
+func TestMCPAuthorizationCannotBeBypassedWithSSEPathSuffix(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = w.Write([]byte("UPSTREAM_REACHED"))
+	}))
+	defer upstream.Close()
+
+	provider, err := intake.NewTrustedProxy([]string{"127.0.0.1/32"}, "local-auth-gateway")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, _ := trustedProxyMCPTestHandler(t, provider, upstream.URL)
+	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"payment.send","arguments":{"amount_minor":100,"currency":"USD","recipient":"merchant-456"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`)
+
+	for _, path := range []string{"/sse", "/x/sse", "/mcp/sse"} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(mcp.HeaderProtocolVersion, mcp.ProtocolVersion20260728)
+			request.Header.Set(mcp.HeaderMethod, "tools/call")
+			request.Header.Set(mcp.HeaderName, "payment.send")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if strings.Contains(response.Body.String(), "UPSTREAM_REACHED") {
+				t.Fatalf("path suffix %q reached MCP upstream", path)
+			}
+		})
+	}
+	if upstreamCalls.Load() != 0 {
+		t.Fatalf("SSE path suffix invoked MCP upstream %d times", upstreamCalls.Load())
+	}
+}
+
 func TestAuthorizationHTTPFailsClosedWithoutTrustedIntake(t *testing.T) {
 	handler := testHandlerWithServerOptions(t, filepath.Join(t.TempDir(), "session-audit.jsonl"), nil, nil, httpapi.Options{
 		AuthorizationIntake: intake.RejectAll{},
