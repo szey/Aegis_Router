@@ -34,6 +34,7 @@ const (
 	OutcomeWrongOperation        Outcome = "WRONG_OPERATION"
 	OutcomeWrongProfile          Outcome = "WRONG_PROFILE"
 	OutcomeWrongAudience         Outcome = "WRONG_AUDIENCE"
+	OutcomeWrongExecutionBinding Outcome = "WRONG_EXECUTION_BINDING"
 	OutcomeReplayed              Outcome = "REPLAYED"
 	OutcomeRevoked               Outcome = "REVOKED"
 	OutcomeInvalidIssuer         Outcome = "INVALID_ISSUER"
@@ -246,6 +247,9 @@ func actionBindingOutcome(action canonicalaction.Action, claims permit.Claims) O
 	}
 	if action.Audience != claims.Audience {
 		return OutcomeWrongAudience
+	}
+	if action.ExecutionBinding != claims.ExecutionBinding {
+		return OutcomeWrongExecutionBinding
 	}
 	digest, err := action.Digest()
 	if err != nil {

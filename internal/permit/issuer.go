@@ -32,6 +32,8 @@ type IssueRequest struct {
 	ProfileID                     string
 	Audience                      string
 	ActionDigest                  string
+	ExecutionBinding              string
+	AuthorityEpoch                uint64
 	PolicyVersion                 string
 	Obligations                   Obligations
 	TTL                           time.Duration
@@ -124,7 +126,9 @@ func (i *Issuer) Issue(request IssueRequest) (IssuedPermit, error) {
 		Tool:                          request.Tool, Capability: request.Capability, Resource: request.Resource, Operation: request.Operation,
 		ProfileID: request.ProfileID, Audience: request.Audience,
 		ActionDigest: request.ActionDigest, PolicyVersion: request.PolicyVersion, Obligations: request.Obligations,
-		Issuer: i.name, IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix(), SingleUse: true,
+		ExecutionBinding: request.ExecutionBinding,
+		AuthorityEpoch:   request.AuthorityEpoch,
+		Issuer:           i.name, IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix(), SingleUse: true,
 	}
 	if err := claims.Validate(); err != nil {
 		return IssuedPermit{}, err

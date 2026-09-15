@@ -4,6 +4,8 @@ English | [简体中文](CONTRIBUTING.zh-CN.md)
 
 Thank you for improving **Aegis_Router — Execution Permits for AI Agent Actions**. The repository is [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router).
 
+The real MCP path uses [PreparedExecution and Permit v2](docs/prepared-execution.md) to bind the exact route, profile configuration, and anonymous upstream identity, with Policy rechecking bytes/effects derived from actual arguments. Authority epochs are checked under the registration/consumption lock; disable, re-enable, and refresh invalidate old Permits. Epoch/disabled state is not durable and must be reestablished by trusted code after restart. Resource/lease evidence is synthetic only; no real broker is integrated.
+
 ## Preserve one security property
 
 Every core change must strengthen this execution path:
@@ -84,3 +86,5 @@ If the race-detector toolchain is unavailable, report that limitation exactly in
 Chinese is the semantic working source and English must change in the same PR. Identifiers, endpoints, statuses, dates, links, and capability boundaries must match. Research-driven changes use `$research-to-product` and the [project contract](.codex/research-to-product.json); do not alter its publish, deploy, production-data, or company-device safety flags.
 
 Never commit credentials, signing keys, Permit tokens, production audit, real company paths, employee activity, customer data, or raw company-device logs. Only redacted conclusions or synthetic fixtures may return from a company pilot to the public repository.
+
+Compiled profile changes must derive PolicyFacts from normalized arguments, snapshot configuration bindings, and share PreparedExecution between issuance and dispatch. Cover route drift, understated bytes/effects, and stale epochs with rejection tests; do not relax shipped policy to repair positive fixtures.

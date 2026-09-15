@@ -6,6 +6,8 @@
 
 2026-09-13 的[重设计提案](manus-redesign.zh-CN.md)已完成第一阶段：[M1 执行准入与固定路由](m1-execution-admission.zh-CN.md)。不支持的要求在消费前拒绝，重定向不能扩大目标。持久状态、环境 lease 与生命周期保留为后续阶段；项目契约未修改。
 
+当前真实 MCP 路径使用 [PreparedExecution 与 Permit v2](prepared-execution.zh-CN.md)，绑定精确路由、profile 配置和匿名上游身份，并从实际参数重算字节数/副作用后检查 Policy。权限 epoch 在注册与消费锁内核对；停用、重新启用或刷新都使旧许可失效。epoch/禁用状态不持久，重启需可信系统重建；资源/lease 只有合成契约实验，真实 broker 尚未接入。
+
 ## 一句话定位
 
 Aegis_Router 是带有 Server-owned 语义动作配置、且不绑定 Agent 框架的 execution-permit 层：它先进行确定性 Policy 资格判断，再把获授权的请求解析为精确的规范动作，签发短时、签名、动作绑定、单次使用的许可，并要求 MCP 执行边界在真实副作用前验证和消费许可。
@@ -93,7 +95,7 @@ Permit claims 至少包含：
 - `action_digest` 与 `policy_version`；
 - `issued_at`、`expires_at`、`single_use=true`。
 
-MVP token 是项目自有的 Ed25519 签名紧凑格式：`base64url(header).base64url(payload).base64url(signature)`，Header 为 `alg=EdDSA`、`typ=AEGIS-PERMIT`、`v=1` 与 `kid`。未验证的 `kid` 仅选择 KeyProvider 公钥，签名验证后必须与 signed claim 的 `signing_key_id` 一致。它借用 JWS 形态，但不声称通用 JWT/JWS 互操作。
+MVP token 是项目自有的 Ed25519 签名紧凑格式：`base64url(header).base64url(payload).base64url(signature)`，Header 为 `alg=EdDSA`、`typ=AEGIS-PERMIT`、`v=2` 与 `kid`。未验证的 `kid` 仅选择 KeyProvider 公钥，签名验证后必须与 signed claim 的 `signing_key_id` 一致。它借用 JWS 形态，但不声称通用 JWT/JWS 互操作。
 
 TTL 以整秒表示，默认 30 秒，当前最大 15 分钟。
 
@@ -158,3 +160,5 @@ UI 只保留 `Decisions / Permits / Audit / Demo` 主导航。Permit 详情显�
 Focused MVP 完成时必须能重复证明：精确动作被授权并获签名 Permit；MCP 边界在上游调用前验证和消费；任何受绑定字段变化都阻断；消费后不能 replay；全链路审计不泄漏 token 或敏感 payload。
 
 即使全部本地测试通过，这仍是参考实现。单进程 Store、默认临时开发密钥、本地审计、尚未接入真实认证中间件的部署边界与未完成的独立评审，均不构成生产保证。
+
+迁移：真实 execution Permit 必须重新签发为 v2；v1 仅保留底层兼容/模拟用途，当前 MCP 不接受旧 v1 执行许可。

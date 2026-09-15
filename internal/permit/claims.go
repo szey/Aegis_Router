@@ -70,6 +70,8 @@ type Claims struct {
 	ProfileID                     string      `json:"profile_id,omitempty"`
 	Audience                      string      `json:"audience,omitempty"`
 	ActionDigest                  string      `json:"action_digest"`
+	ExecutionBinding              string      `json:"execution_binding,omitempty"`
+	AuthorityEpoch                uint64      `json:"authority_epoch,omitempty"`
 	PolicyVersion                 string      `json:"policy_version"`
 	Obligations                   Obligations `json:"obligations,omitempty"`
 	Issuer                        string      `json:"iss"`
@@ -83,6 +85,12 @@ func (c Claims) ExpiresTime() time.Time { return time.Unix(c.ExpiresAt, 0).UTC()
 
 // Validate verifies required claims without accepting raw payloads.
 func (c Claims) Validate() error {
+	if (c.ExecutionBinding != "") != (c.AuthorityEpoch != 0) {
+		return fmt.Errorf("%w: v2 execution_binding and authority_epoch are required together", ErrInvalidClaims)
+	}
+	if c.ExecutionBinding != "" && (!actionDigestPattern.MatchString(c.ExecutionBinding) || c.PermitClass != ClassExecution) {
+		return fmt.Errorf("%w: execution_binding requires an execution Permit and SHA-256 digest", ErrInvalidClaims)
+	}
 	if !c.PermitClass.Valid() {
 		return fmt.Errorf("%w: permit_class must be execution or simulation", ErrInvalidClaims)
 	}

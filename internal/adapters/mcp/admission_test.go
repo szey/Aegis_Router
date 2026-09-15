@@ -50,6 +50,7 @@ func TestShippedNetworkObligationNeverConsumesOrInvokesUpstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.SemanticActions.PaymentSendV1.UpstreamURL = upstream.URL
 	r := router.New(cfg, store)
 	action := validPaymentRequest()
 	authorized, err := authorizeAction(t, r, action)
@@ -88,6 +89,7 @@ func TestConstraintAuditFailureStillCannotConsumeOrDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.SemanticActions.PaymentSendV1.UpstreamURL = upstream.URL
 	r := router.New(cfg, store)
 	action := validPaymentRequest()
 	authorized, err := authorizeAction(t, r, action)
@@ -132,6 +134,7 @@ func TestRedirectNeverDispatchesToSecondReceiver(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				cfg.SemanticActions.PaymentSendV1.UpstreamURL = upstream.URL
 				r := router.New(unconstrainedMockPolicy(cfg), store)
 				var client *http.Client
 				if suppliedClient {

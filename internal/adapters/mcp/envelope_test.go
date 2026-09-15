@@ -121,7 +121,7 @@ func TestInvalidEnvelopePreservesPermitAndProofForValidCall(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
-	r, _, _ := testRouter(t) // Explicitly unconstrained, synthetic success policy.
+	r, _, _ := testRouter(t, upstream.URL) // Explicitly unconstrained, synthetic success policy.
 	action := validPaymentRequest()
 	authorized, err := authorizeAction(t, r, action)
 	if err != nil {

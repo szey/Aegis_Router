@@ -261,3 +261,16 @@ Baseline: `6e4d77197668afe91ddcd53527c9ce4f97b17641`. The user asked about check
 | `BIND-2026-09-15-05` | `S1/V1`: obligation rejection exists; independent lease/generation and external enforcement do not | `defer` / `planned`: continue M3 broker/environment contracts without treating self-report or mocks as real isolation |
 
 This delivery changes one production Go file, preserving tokens, default policy, profile count, and deployment boundaries. New regressions and research documentation are synchronized in Chinese/English. Local Windows full Go tests, vet, frontend checks/build, and contract validation exited 0. Local race could not run without cgo, and Docker failed without the Linux daemon; final Linux CI evidence belongs to the corresponding PR head. The user's prior GitHub-push authorization remains applicable; no deployment, production access, or contract safety-flag change occurred.
+
+## 16. 2026-09-15 PreparedExecution implementation
+
+Baseline: `797b9c5c4e3b0d69a36e5d27619c1aace3d2da01`. This section supersedes the historical statuses in section 15 and reuses its primary sources without promoting citations to local execution evidence. See the [implementation record](prepared-execution.md) for mechanisms, migration, comparisons, and limitations.
+
+| research_id | Single disposition / status | Evidence and remaining scope |
+|---|---|---|
+| `BIND-2026-09-15-02` | `implement` / `completed` | `S1/V2`: two route/config drift cases change from one call to zero. PreparedExecution, anonymous identity, and Permit v2 are integrated into MCP. Three additional understated-byte/effect cases change from issuance to rejection. |
+| `BIND-2026-09-15-03` | `experiment` / `completed` | Synthetic final-writer object ID/generation/namespace comparisons. Real resource integration remains planned; no filesystem isolation is proven. |
+| `BIND-2026-09-15-04` | `implement` / `completed` (local epoch subset only) | `S1/V2`: disable/re-enable, stale decision registration, and 64 races pass. Disabled state is not durable; full M2 transactions and M4 lifecycle remain incomplete. |
+| `BIND-2026-09-15-05` | `experiment` / `completed` (synthetic contract only) | Eight resource/lease mutations: action-only checks write once, final-version checks write zero times; 32 competing writes yield one mutation. Actual controller/environment remains V1, undeployed. |
+
+Validation covers full Go tests, vet, frontend, and the project contract. Local race/Docker limitations and final Linux CI outcomes are recorded separately in the PR. Shipped obligations, two profiles, the sole MCP adapter, and safety flags remain unchanged; no deployment or production-data access.

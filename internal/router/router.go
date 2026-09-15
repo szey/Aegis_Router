@@ -152,7 +152,20 @@ func (r *Router) authorizeResolvedAction(req models.Request, provenance models.A
 	// Only deterministic policy output controls status, obligations, and Permit
 	// issuance. Risk and request/session detection run later solely to enrich
 	// advisory audit metadata.
+	// Capture the epoch before policy eligibility. Register rejects if the
+	// authority changes while policy/semantic resolution is in progress.
+	authority := permit.AuthorityState{}
+	if permitClass == permit.ClassExecution {
+		agent := req.EffectiveAgent()
+		authority = r.permitStore.Authority(permit.AuthorityKey{PrincipalID: req.EffectivePrincipal().PrincipalID, AgentID: agent.AgentID, WorkloadID: agent.WorkloadID})
+	}
 	policyDecision := r.policy.Evaluate(req)
+	if permitClass == permit.ClassExecution && !authority.Enabled {
+		policyDecision.Authorized, policyDecision.Status, policyDecision.Route = false, models.AuthorizationStatusDenied, models.RouteDeny
+		policyDecision.Grant = nil
+		policyDecision.Reasons = append(policyDecision.Reasons, "AUTHORITY_REVOKED")
+		policyDecision.Rules = append(policyDecision.Rules, "authority.disabled")
+	}
 	status := policyDecision.Status
 	obligations := policyObligations(policyDecision)
 	decisionID := newIdentifier("decision")
@@ -160,7 +173,7 @@ func (r *Router) authorizeResolvedAction(req models.Request, provenance models.A
 	var resolvedAction canonicalaction.Action
 	var resolved bool
 	if status == models.AuthorizationStatusAuthorized && policyDecision.Authorized && policyDecision.Grant != nil {
-		candidate, resolveErr := r.resolveAuthorizedAction(req, *policyDecision.Grant, permitClass)
+		candidate, facts, resolveErr := r.resolveAuthorizedAction(req, *policyDecision.Grant, permitClass)
 		if resolveErr != nil {
 			code := string(semanticaction.Code(resolveErr))
 			policyDecision.Authorized = false
@@ -174,6 +187,19 @@ func (r *Router) authorizeResolvedAction(req models.Request, provenance models.A
 		} else {
 			resolvedAction = candidate
 			resolved = true
+			if permitClass == permit.ClassExecution {
+				// The initial decision preserves conservative caller assertions.
+				// A second deterministic check uses the exact prepared operation;
+				// omitted or understated caller metadata cannot authorize it.
+				checked := req
+				checked.Action = req.EffectiveAction()
+				checked.Action.Arguments = candidate.Arguments
+				checked.Action.SideEffect = facts.SideEffect
+				checked.Action.Bytes = max(checked.Action.Bytes, facts.Bytes)
+				policyDecision = r.policy.Evaluate(checked)
+				status = policyDecision.Status
+				obligations = policyObligations(policyDecision)
+			}
 		}
 	}
 	dispatch := compatibilityDispatchFor(policyDecision)
@@ -201,13 +227,15 @@ func (r *Router) authorizeResolvedAction(req models.Request, provenance models.A
 		}
 	}
 	if status == models.AuthorizationStatusAuthorized && policyDecision.Authorized && policyDecision.Grant != nil {
-		issued, issueErr := r.issuePermit(req, *policyDecision.Grant, obligations, resolvedActionOrDefault(resolvedAction, resolved, req, *policyDecision.Grant), actionDigest, started, workloadBinding, permitClass, ttlOverride)
+		issued, issueErr := r.issuePermit(req, *policyDecision.Grant, obligations, resolvedActionOrDefault(resolvedAction, resolved, req, *policyDecision.Grant), actionDigest, started, workloadBinding, permitClass, ttlOverride, authority.Epoch)
 		if issueErr != nil {
 			return models.ActionAuthorizationResponse{}, issueErr
 		}
 		envelope = envelopeFor(issued, req.SessionID, policyDecision.Grant.Constraints, dispatch.Route)
 		credential = &models.PermitCredential{
-			PermitID: issued.PermitID, SigningKeyID: issued.Claims.SigningKeyID, PermitClass: string(issued.Claims.PermitClass),
+			ExecutionBinding: issued.Claims.ExecutionBinding,
+			AuthorityEpoch:   issued.Claims.AuthorityEpoch,
+			PermitID:         issued.PermitID, SigningKeyID: issued.Claims.SigningKeyID, PermitClass: string(issued.Claims.PermitClass),
 			ProfileID: issued.Claims.ProfileID, Audience: issued.Claims.Audience, PermitToken: issued.Token(), IssuedAt: issued.Claims.IssuedTime(),
 			ExpiresAt: issued.Claims.ExpiresTime(), SingleUse: issued.Claims.SingleUse,
 		}
@@ -299,6 +327,8 @@ func permitVerification(result verifier.Result, source models.RuntimeEventSource
 		verification.PermitClass = string(result.Claims.PermitClass)
 		verification.ProfileID = result.Claims.ProfileID
 		verification.Audience = result.Claims.Audience
+		verification.ExecutionBinding = result.Claims.ExecutionBinding
+		verification.AuthorityEpoch = result.Claims.AuthorityEpoch
 		verification.Obligations = models.ExecutionObligations{
 			IsolationRequired:     result.Claims.Obligations.IsolationRequired,
 			NetworkEgressDenied:   result.Claims.Obligations.NetworkEgressDenied,
@@ -429,8 +459,33 @@ func (r *Router) RevokePermit(permitID string) (permit.Record, error) {
 	if err != nil {
 		return record, err
 	}
+	return record, r.recordPermitRevocation(record, now)
+}
+
+// SetAuthorityEnabled is a trusted in-process control-plane entry, not an
+// unauthenticated HTTP API. The epoch transition commits before audit updates;
+// audit failure can never restore old authority or an already-consumed Permit.
+func (r *Router) SetAuthorityEnabled(key permit.AuthorityKey, enabled bool) (permit.AuthorityState, error) {
+	now := r.clock().UTC()
+	state, err := r.permitStore.SetAuthorityEnabled(key, enabled, now)
+	if err != nil {
+		return state, err
+	}
+	var auditErr error
+	for _, record := range r.permitStore.List(now) {
+		if record.Claims.AuthorityKey() == key && record.Claims.AuthorityEpoch < state.Epoch && record.State == permit.StateRevoked {
+			auditErr = errors.Join(auditErr, r.recordPermitRevocation(record, now))
+		}
+	}
+	return state, auditErr
+}
+
+func (r *Router) recordPermitRevocation(record permit.Record, now time.Time) error {
+	if record.RevokedAt != nil {
+		now = *record.RevokedAt
+	}
 	r.mu.Lock()
-	delete(r.permits, permitID)
+	delete(r.permits, record.Claims.PermitID)
 	r.mu.Unlock()
 	if _, ok := r.audit.Get(record.Claims.RequestID); ok {
 		_, updateErr := r.audit.Mutate(record.Claims.RequestID, func(auditRecord *models.AuditRecord) error {
@@ -447,10 +502,10 @@ func (r *Router) RevokePermit(permitID string) (permit.Record, error) {
 			return nil
 		})
 		if updateErr != nil {
-			return record, updateErr
+			return updateErr
 		}
 	}
-	return record, nil
+	return nil
 }
 
 func authorizationReceipt(decisionID string, req models.Request, status models.AuthorizationStatus, envelope *models.AuthorizationEnvelope, digest, policyVersion string, at time.Time) *models.ExecutionReceipt {
@@ -458,18 +513,23 @@ func authorizationReceipt(decisionID string, req models.Request, status models.A
 	agent := req.EffectiveAgent()
 	tool := req.EffectiveTool().Name
 	action := req.EffectiveAction()
-	permitID, permitState, permitClass, profileID, audience := "", "", "", "", ""
+	permitID, permitState, permitClass, profileID, audience, binding := "", "", "", "", "", ""
+	var epoch uint64
 	if envelope != nil {
 		permitID, permitState = envelope.PermitID, envelope.State
 		permitClass = envelope.PermitClass
 		profileID, audience = envelope.ProfileID, envelope.Audience
+		binding = envelope.ExecutionBinding
+		epoch = envelope.AuthorityEpoch
 		tool = envelope.AllowedTool
 		action.Capability = envelope.AllowedCapability
 		action.TargetResource = envelope.AllowedResource
 		action.Operation = envelope.AllowedOperation
 	}
 	return &models.ExecutionReceipt{
-		RequestID: req.RequestID, DecisionID: decisionID, PermitID: permitID, PermitClass: permitClass,
+		ExecutionBinding: binding,
+		AuthorityEpoch:   epoch,
+		RequestID:        req.RequestID, DecisionID: decisionID, PermitID: permitID, PermitClass: permitClass,
 		ProfileID: profileID, Audience: audience,
 		PrincipalID: principal.PrincipalID, AgentID: agent.AgentID, WorkloadID: agent.WorkloadID,
 		Tool: tool, Capability: action.Capability, Resource: action.TargetResource, Operation: action.Operation,
@@ -485,7 +545,7 @@ func permitVerdict(outcome verifier.Outcome) string {
 	case verifier.OutcomeActionMismatch, verifier.OutcomeWrongPrincipal, verifier.OutcomeWrongAgent,
 		verifier.OutcomeWrongWorkload, verifier.OutcomeWrongDelegation, verifier.OutcomeWrongTool,
 		verifier.OutcomeWrongCapability, verifier.OutcomeWrongResource, verifier.OutcomeWrongOperation,
-		verifier.OutcomeWrongProfile, verifier.OutcomeWrongAudience:
+		verifier.OutcomeWrongProfile, verifier.OutcomeWrongAudience, verifier.OutcomeWrongExecutionBinding:
 		return "PERMIT_ACTION_MISMATCH"
 	case verifier.OutcomeExpired:
 		return "PERMIT_EXPIRED"
@@ -987,11 +1047,12 @@ func resolvedActionOrDefault(resolvedAction canonicalaction.Action, resolved boo
 	return canonicalAction(req, grant)
 }
 
-func (r *Router) resolveAuthorizedAction(req models.Request, grant models.MatchedAuthorizationGrant, permitClass permit.Class) (canonicalaction.Action, error) {
+func (r *Router) resolveAuthorizedAction(req models.Request, grant models.MatchedAuthorizationGrant, permitClass permit.Class) (canonicalaction.Action, semanticaction.PolicyFacts, error) {
 	if permitClass != permit.ClassExecution {
-		return canonicalAction(req, grant), nil
+		return canonicalAction(req, grant), semanticaction.PolicyFacts{}, nil
 	}
-	return r.resolveSemanticAction(req)
+	prepared, err := r.prepareSemanticAction(req)
+	return prepared.Action(), prepared.PolicyFacts(), err
 }
 
 func (r *Router) resolveExecutionAction(req models.Request) (canonicalaction.Action, error) {
@@ -999,17 +1060,18 @@ func (r *Router) resolveExecutionAction(req models.Request) (canonicalaction.Act
 }
 
 func (r *Router) resolveSemanticAction(req models.Request) (canonicalaction.Action, error) {
+	prepared, err := r.prepareSemanticAction(req)
+	return prepared.Action(), err
+}
+
+func (r *Router) prepareSemanticAction(req models.Request) (semanticaction.PreparedExecution, error) {
 	base := executionAction(req)
-	resolved, err := r.semanticRegistry.Resolve(semanticaction.Input{
+	return r.semanticRegistry.Prepare(semanticaction.Input{
 		PrincipalID: base.PrincipalID, AgentID: base.AgentID, WorkloadID: base.WorkloadID,
 		DelegatedAuthorityFingerprint: base.DelegatedAuthorityFingerprint,
 		Tool:                          base.Tool, Capability: base.Capability, Resource: base.Resource, Operation: base.Operation,
 		ProfileID: base.ProfileID, Audience: base.Audience, Arguments: base.Arguments,
 	})
-	if err != nil {
-		return canonicalaction.Action{}, err
-	}
-	return resolved.Action, nil
 }
 
 // SemanticRegistry exposes the immutable, server-owned dispatcher to the MCP
@@ -1041,7 +1103,7 @@ func executionAction(req models.Request) canonicalaction.Action {
 	}
 }
 
-func (r *Router) issuePermit(req models.Request, grant models.MatchedAuthorizationGrant, obligations models.ExecutionObligations, action canonicalaction.Action, actionDigest string, issuedAt time.Time, workloadBinding intake.WorkloadBinding, permitClass permit.Class, ttlOverride time.Duration) (permit.IssuedPermit, error) {
+func (r *Router) issuePermit(req models.Request, grant models.MatchedAuthorizationGrant, obligations models.ExecutionObligations, action canonicalaction.Action, actionDigest string, issuedAt time.Time, workloadBinding intake.WorkloadBinding, permitClass permit.Class, ttlOverride time.Duration, authorityEpoch uint64) (permit.IssuedPermit, error) {
 	ttl := r.permitTTL
 	if ttlOverride > 0 && ttlOverride < ttl {
 		ttl = ttlOverride
@@ -1069,6 +1131,8 @@ func (r *Router) issuePermit(req models.Request, grant models.MatchedAuthorizati
 		Tool: action.Tool, Capability: action.Capability, Resource: action.Resource, Operation: action.Operation,
 		ProfileID: action.ProfileID, Audience: action.Audience,
 		ActionDigest: actionDigest, PolicyVersion: r.policyVersion, TTL: ttl,
+		ExecutionBinding: action.ExecutionBinding,
+		AuthorityEpoch:   authorityEpoch,
 		Obligations: permit.Obligations{
 			IsolationRequired: obligations.IsolationRequired, NetworkEgressDenied: obligations.NetworkEgressDenied,
 			ReadOnly: obligations.ReadOnly, HumanApprovalRequired: obligations.HumanApprovalRequired,
@@ -1084,7 +1148,9 @@ func (r *Router) issuePermit(req models.Request, grant models.MatchedAuthorizati
 func envelopeFor(issued permit.IssuedPermit, sessionID string, constraints models.AuthorizationConstraints, route models.Route) *models.AuthorizationEnvelope {
 	claims := issued.Claims
 	return &models.AuthorizationEnvelope{
-		PermitID: claims.PermitID, SigningKeyID: claims.SigningKeyID, PermitClass: string(claims.PermitClass), RequestID: claims.RequestID, SessionID: sessionID,
+		ExecutionBinding: claims.ExecutionBinding,
+		AuthorityEpoch:   claims.AuthorityEpoch,
+		PermitID:         claims.PermitID, SigningKeyID: claims.SigningKeyID, PermitClass: string(claims.PermitClass), RequestID: claims.RequestID, SessionID: sessionID,
 		PrincipalID: claims.PrincipalID, AgentID: claims.AgentID, WorkloadID: claims.WorkloadID,
 		ExecutorKeyID:                  claims.ExecutorKeyID,
 		ExecutorKeyThumbprint:          claims.ExecutorKeyThumbprint,

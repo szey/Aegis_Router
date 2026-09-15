@@ -4,6 +4,8 @@
 
 感谢你改进 **Aegis_Router — AI Agent 动作的执行许可**。仓库地址为 [`szey/Aegis_Router`](https://github.com/szey/Aegis_Router)。
 
+当前真实 MCP 路径使用 [PreparedExecution 与 Permit v2](docs/prepared-execution.zh-CN.md)，绑定精确路由、profile 配置和匿名上游身份，并从实际参数重算字节数/副作用后检查 Policy。权限 epoch 在注册与消费锁内核对；停用、重新启用或刷新都使旧许可失效。epoch/禁用状态不持久，重启需可信系统重建；资源/lease 只有合成契约实验，真实 broker 尚未接入。
+
 ## 先守住一个安全属性
 
 每项核心改动都必须强化这条执行链：
@@ -84,3 +86,5 @@ docker build .
 中文是语义工作源，英文必须在同一 PR 中同步。标识、端点、状态、日期、链接和能力边界必须一致。调研驱动变更使用 `$research-to-product` 与 [项目契约](.codex/research-to-product.json)，不得改变其中的发布、部署、生产数据或公司设备安全标志。
 
 不要提交凭据、签名密钥、Permit token、生产审计、真实公司路径、员工活动、客户数据或公司设备原始日志。公司试点发现只能以脱敏结论或 synthetic fixture 回到公开仓库。
+
+新增或修改编译 profile 时，必须从归一参数计算 PolicyFacts、快照配置摘要，并让授权与派发共用 PreparedExecution。增加路由漂移、低报字节/副作用、过期 epoch 的拒绝测试；不要通过放宽默认策略修复成功用例。

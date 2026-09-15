@@ -42,6 +42,9 @@ func SignToken(privateKey ed25519.PrivateKey, keyID string, claims Claims) (stri
 		return "", fmt.Errorf("%w: token kid must match signing_key_id", ErrInvalidClaims)
 	}
 	header := compactHeader
+	if claims.ExecutionBinding != "" {
+		header.Version = 2
+	}
 	header.KeyID = keyID
 	headerJSON, err := json.Marshal(header)
 	if err != nil {
@@ -102,7 +105,7 @@ func VerifyToken(publicKey ed25519.PublicKey, token string) (Claims, error) {
 		return claims, fmt.Errorf("%w: invalid header", ErrMalformedToken)
 	}
 	if header.Algorithm != compactHeader.Algorithm || header.Type != compactHeader.Type ||
-		header.Version != compactHeader.Version || keyprovider.ValidateKeyID(header.KeyID) != nil {
+		(header.Version != 1 && header.Version != 2) || keyprovider.ValidateKeyID(header.KeyID) != nil {
 		return claims, ErrUnsupportedToken
 	}
 	if err := strictJSON(payloadJSON, &claims); err != nil {
@@ -110,6 +113,9 @@ func VerifyToken(publicKey ed25519.PublicKey, token string) (Claims, error) {
 	}
 	if err := claims.Validate(); err != nil {
 		return Claims{}, err
+	}
+	if (header.Version == 2) != (claims.ExecutionBinding != "") {
+		return Claims{}, ErrUnsupportedToken
 	}
 	if claims.SigningKeyID != header.KeyID {
 		return Claims{}, fmt.Errorf("%w: token kid does not match signed claims", ErrInvalidClaims)
@@ -137,7 +143,7 @@ func TokenKeyID(token string) (string, error) {
 		return "", fmt.Errorf("%w: invalid header", ErrMalformedToken)
 	}
 	if header.Algorithm != compactHeader.Algorithm || header.Type != compactHeader.Type ||
-		header.Version != compactHeader.Version || keyprovider.ValidateKeyID(header.KeyID) != nil {
+		(header.Version != 1 && header.Version != 2) || keyprovider.ValidateKeyID(header.KeyID) != nil {
 		return "", ErrUnsupportedToken
 	}
 	return header.KeyID, nil

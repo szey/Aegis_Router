@@ -4,6 +4,8 @@ English | [简体中文](authorization-execution-binding.zh-CN.md)
 
 Review: 2026-09-15. Baseline: `6e4d77197668afe91ddcd53527c9ce4f97b17641`. This research-to-product review combines primary sources, current code, and synthetic experiments.
 
+Follow-up: this document preserves the research/first-fix snapshot before `797b9c5`; planned rows below describe that decision point. See the [PreparedExecution implementation record](prepared-execution.md) for current status: 02 implemented, the process-local epoch subset of 04 implemented, and synthetic 03/05 contracts completed. Real resource/broker integration and durable transactions remain undelivered.
+
 ## 1. Conclusion and delivered scope
 
 The user's observation that the checked object, scope, or identity can differ from what executes is a useful Aegis design principle. This review establishes neither a frequency/severity ranking nor the quotation's original attribution.

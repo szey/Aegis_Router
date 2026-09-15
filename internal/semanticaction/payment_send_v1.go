@@ -34,6 +34,7 @@ type PaymentSendArguments struct {
 }
 
 type PaymentSendV1 struct {
+	binding    string
 	config     models.PaymentSendV1Config
 	currencies map[string]int64
 	recipients map[string]struct{}
@@ -79,13 +80,22 @@ func NewPaymentSendV1(config models.PaymentSendV1Config) (*PaymentSendV1, error)
 	if len(profile.recipients) == 0 {
 		return nil, fmt.Errorf("%s must allow at least one recipient", PaymentSendV1ID)
 	}
+	if upstream.User != nil || upstream.Fragment != "" || upstream.RawQuery != "" || upstream.ForceQuery {
+		return nil, fmt.Errorf("%s upstream cannot contain credentials, query, or fragment", PaymentSendV1ID)
+	}
+	config.UpstreamURL = upstream.String()
+	profile.binding, err = executionBinding(config, upstream.String())
+	if err != nil {
+		return nil, err
+	}
 	return profile, nil
 }
 
-func (p *PaymentSendV1) Tool() string        { return p.config.MCPTool }
-func (p *PaymentSendV1) ProfileID() string   { return p.config.ProfileID }
-func (p *PaymentSendV1) Audience() string    { return p.config.Audience }
-func (p *PaymentSendV1) UpstreamURL() string { return p.upstream.String() }
+func (p *PaymentSendV1) Tool() string          { return p.config.MCPTool }
+func (p *PaymentSendV1) ProfileID() string     { return p.config.ProfileID }
+func (p *PaymentSendV1) Audience() string      { return p.config.Audience }
+func (p *PaymentSendV1) UpstreamURL() string   { return p.upstream.String() }
+func (p *PaymentSendV1) BindingDigest() string { return p.binding }
 
 func (p *PaymentSendV1) Resolve(input Input) (Resolved, error) {
 	if p == nil || input.Tool != p.config.MCPTool {
@@ -116,7 +126,8 @@ func (p *PaymentSendV1) Resolve(input Input) (Resolved, error) {
 		Operation: p.config.Operation, ProfileID: p.config.ProfileID, Audience: p.config.Audience,
 		Arguments: normalized,
 	}
-	return Resolved{Action: action, NormalizedArguments: normalized, UpstreamURL: p.upstream.String()}, nil
+	return Resolved{Action: action, NormalizedArguments: normalized, UpstreamURL: p.upstream.String(),
+		PolicyFacts: PolicyFacts{SideEffect: "financial_transaction", Bytes: int64(len(normalized))}}, nil
 }
 
 func (p *PaymentSendV1) parseArguments(raw json.RawMessage) (PaymentSendArguments, error) {

@@ -6,6 +6,8 @@
 
 2026-09-13 的[重设计提案](docs/manus-redesign.zh-CN.md)已有 [M1 实现](docs/m1-execution-admission.zh-CN.md)：消费前拒绝不支持的执行要求，以及固定路由禁止重定向。外部控制器、环境 lease 和独立持久审计仍待实现。签名 lease 不等于硬件 attestation，工具调用 Permit 不等于沙箱逃逸防护。
 
+当前真实 MCP 路径使用 [PreparedExecution 与 Permit v2](docs/prepared-execution.zh-CN.md)，绑定精确路由、profile 配置和匿名上游身份，并从实际参数重算字节数/副作用后检查 Policy。权限 epoch 在注册与消费锁内核对；停用、重新启用或刷新都使旧许可失效。epoch/禁用状态不持久，重启需可信系统重建；资源/lease 只有合成契约实验，真实 broker 尚未接入。
+
 ## 报告漏洞
 
 请不要在公开 Issue 中披露疑似漏洞。如果仓库已启用 GitHub Private Vulnerability Reporting，请使用该功能，并提供：受影响版本/Commit、最小安全复现、预期与实际验证结果、上游工具是否被调用、潜在影响和可行缓解措施。

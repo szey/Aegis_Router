@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -53,6 +54,16 @@ type Proxy struct {
 	client          *http.Client
 }
 
+// Private, credential-free transport. A custom RoundTripper could attach a
+// different identity after the binding check; it needs a future explicit
+// credential contract instead of inheriting the anonymous mode.
+var anonymousTransport = &http.Transport{
+	Proxy:             http.ProxyFromEnvironment,
+	DialContext:       (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+	ForceAttemptHTTP2: true, MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second,
+	TLSHandshakeTimeout: 10 * time.Second, ExpectContinueTimeout: time.Second,
+}
+
 func New(gate Gate, registry *semanticaction.Registry, controlUpstreamURL string, client *http.Client) (*Proxy, error) {
 	if gate == nil {
 		return nil, fmt.Errorf("MCP proxy requires an execution-permit gate")
@@ -73,10 +84,14 @@ func New(gate Gate, registry *semanticaction.Registry, controlUpstreamURL string
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
+	if client.Jar != nil || client.Transport != nil {
+		return nil, fmt.Errorf("MCP anonymous execution binding does not support cookie jars or custom transports")
+	}
 	// Never mutate a caller's shared client, and never follow a redirect away
 	// from the server-owned route (including same-origin redirects). A supplied
 	// client's permissive redirect callback cannot weaken this boundary.
 	boundedClient := *client
+	boundedClient.Transport = anonymousTransport
 	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &Proxy{gate: gate, registry: registry, controlUpstream: target, client: &boundedClient}, nil
 }
@@ -185,7 +200,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if bound, bindErr := canonicalaction.BindDelegatedAuthorityFingerprint(delegationBinding); bindErr == nil {
 		delegationBinding = bound
 	}
-	resolved, resolveErr := p.registry.Resolve(semanticaction.Input{
+	prepared, resolveErr := p.registry.Prepare(semanticaction.Input{
 		PrincipalID: req.Header.Get(HeaderPrincipalID), AgentID: req.Header.Get(HeaderAgentID),
 		WorkloadID: req.Header.Get(HeaderWorkloadID), DelegatedAuthorityFingerprint: delegationBinding,
 		Tool: params.Name, Capability: req.Header.Get(HeaderCapability), Resource: req.Header.Get(HeaderResource),
@@ -198,14 +213,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		})
 		return
 	}
-	upstream, upstreamErr := url.Parse(resolved.UpstreamURL)
+	upstream, upstreamErr := url.Parse(prepared.UpstreamURL())
 	if upstreamErr != nil || upstream.Scheme == "" || upstream.Host == "" ||
 		(upstream.Scheme != "http" && upstream.Scheme != "https") || !p.registry.OwnsUpstreamURL(upstream.String()) {
 		writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis semantic profile has an invalid upstream binding", nil)
 		return
 	}
-	action := resolved.Action
-	normalizedBody, err := normalizedToolCallBody(rpc, params, resolved.NormalizedArguments)
+	action := prepared.Action()
+	normalizedBody, err := normalizedToolCallBody(rpc, params, prepared.Arguments())
 	if err != nil {
 		writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not construct the normalized upstream request", nil)
 		return

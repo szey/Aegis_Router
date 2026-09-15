@@ -8,7 +8,7 @@
 
 ## 1. 建议的产品方向
 
-2026-09-15 增量：[授权与执行一致性研究](authorization-execution-binding.zh-CN.md)已修复顶层 RPC 解析差异，并将 `PreparedExecution`、路由配置绑定与资源版本列为 M2 前的候选实验。持久事务和外部环境集成仍按下文推进，尚未实现。
+2026-09-15 增量：[PreparedExecution 实现](prepared-execution.zh-CN.md)完成路由/配置/匿名身份绑定、实际参数 Policy 检查、进程内 authority epoch 与资源/lease 合成契约实验。M2–M4 的完整里程碑仍未完成：持久事务、真实资源条件提交和外部 broker 尚未集成。原始研究及首次 envelope 修复见[绑定研究](authorization-execution-binding.zh-CN.md)。
 
 保留现有 CanonicalAction、确定性 Policy、签名 Permit、workload proof 和 MCP gate。下一步把 Aegis 做成**能够确认执行前提的许可边界**：只有当前工作负载、当前环境和当前动作同时匹配，外部执行器才能获得一次执行机会。
 
