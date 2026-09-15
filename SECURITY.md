@@ -14,6 +14,8 @@ Before the first formal tag, only the latest commit on the default branch is sup
 
 ## Trust boundary
 
+On 2026-09-15, an MCP envelope case-matching differential was fixed: earlier code could classify an upstream `tools/call` as a protocol method exempt from Permits. Only exact top-level `jsonrpc/id/method/params` members are now accepted, and protocol requests are rebuilt from the checked envelope. Unknown top-level extensions and case aliases reject before upstream dispatch. See [reproduction, compatibility, and residual boundaries](docs/authorization-execution-binding.md). This fix does not establish stable resource versions, endpoint ownership, or immediate authority revocation.
+
 Aegis is a reference implementation, not an independently reviewed production security boundary. It protects only tool calls that actually cross its verifier/MCP adapter. Installing Aegis does not automatically discover or block behavior that bypasses that boundary.
 
 The core control first validates a trusted structured request and evaluates deterministic Policy eligibility for its capability, resource, operation, and tool. Only after a Policy grant does the server-owned semantic profile resolve the exact executable meaning into a `CanonicalAction`. Successful Policy eligibility and semantic resolution are both required before Aegis issues a signed, short-lived, action-bound, single-use `permit_token`. Any semantic mismatch or normalization failure converts the result to `DENIED` before Permit issuance. Policy authorization alone is not sufficient to produce an Execution Permit, and semantic profile resolution never overrides a Policy denial.

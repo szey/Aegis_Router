@@ -247,3 +247,17 @@ collect evidence → trace primary source → choose disposition
 本轮只增加回归 fixture 和中英文边界说明，不改运行时逻辑、依赖、语义 profile 或产品范围。未自动提交、推送、部署或访问公司设备。
 
 验证：项目契约校验、定向新 fixture、`go test ./...`、`go vet ./...`、`npm run check:web` 和 `npm run build:web -- --log-level=warning` 均退出 0。`go test -race ./...` 先因 `CGO_ENABLED=0` 失败；显式设为 1 后仍因 PATH 中没有 `gcc` 失败，因此本工作树没有完成 race 验证。`docker build .` 因 Docker Desktop Linux engine named pipe 不存在而失败；不记为通过。
+
+## 15. 2026-09-15 授权与实际执行的一致性
+
+基线 `6e4d77197668afe91ddcd53527c9ce4f97b17641`；研究问题来自用户对“检查对象、范围或身份与最终执行不同”的观察。一手来源、日期、locator、代码映射、反证、合成实验和迁移设计集中记录在[授权与执行一致性研究](authorization-execution-binding.zh-CN.md)。JSON-RPC 规范与 Go 解码行为作为同一解析差异证据家族；CWE-367、RFC 8707、MCP draft 指导和 Zanzibar 不因本地测试自动升级验证等级。
+
+| research_id | 证据 / 本项目观察 | 单一处置 / 交付状态 |
+|---|---|---|
+| `BIND-2026-09-15-01` | `S1/V2`：无 Permit/proof/身份、保留默认策略和共享 registry；6 组大小写别名将 Aegis 的协议分类与模拟上游工具动作分离。基线每组工具调用 1 次；修复后 0 次 | `implement` / `completed`：精确顶层 key、重建协议 envelope、负向及成功/nonce 保留对照 |
+| `BIND-2026-09-15-02` | `S1/V1`：v1 摘要未绑定 route/config；默认共享 registry 是限制条件，未证明远程利用 | `experiment` / `planned`：M2 前验证 `PreparedExecution` 与服务端 route/profile/credential binding；显式 v2 迁移 |
+| `BIND-2026-09-15-03` | `S1/V1`：逻辑路径/recipient 标识不是稳定对象版本；当前没有实际文件写入 | `experiment` / `planned`：已有 workspace profile 的模拟最终写入方执行 generation 条件写入 |
+| `BIND-2026-09-15-04` | `S1/V1`：签发 policy version 不等于当前 authority epoch；已有单 Permit 撤销与重启默认拒绝仍有效 | `experiment` / `planned`：把权限时序纳入 M2 持久事务与 M4 生命周期，明确撤销先后和 unknown 状态 |
+| `BIND-2026-09-15-05` | `S1/V1`：obligation 拒绝已经实现；独立 lease/generation 与外部实施方尚缺 | `defer` / `planned`：继续 M3 broker/环境契约，不以自报或 mock 宣称真实隔离 |
+
+本轮改变一处生产 Go 文件，保留 token、默认策略、profile 数量和部署边界。新增回归与研究文档同步中英文。Windows 的全量 Go 测试、vet、前端类型检查/构建、项目契约校验退出 0；本机 race 因缺少 cgo、Docker 因 Linux daemon 不可用未通过，Linux CI 状态以对应 PR head 为准。沿用用户此前对 GitHub 推送的授权；没有部署、访问生产或改动契约中的安全标志。

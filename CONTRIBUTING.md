@@ -23,6 +23,7 @@ Every pull request must preserve:
 
 - principal, Agent, workload, delegation fingerprint, tool, capability, resource, operation, and security-relevant arguments all participate in the canonical-action binding;
 - canonical JSON is deterministic: object key order cannot change the digest, duplicate keys are rejected, and array order is preserved;
+- JSON-RPC top-level members match exact case; unsupported members reject. Construct upstream requests from the classified envelope, including Permit-exempt protocol requests, without forwarding a second interpretation of the original input;
 - the digest uses SHA-256 and normal audit does not retain raw sensitive arguments;
 - `permit_id` is correlation only while `permit_token` is the signed execution credential; an ID alone cannot authorize;
 - HTTP authorization identity must come from `TrustedAuthorizationIntake`; an unconfigured intake fails closed, while local body intake is explicit and labeled `development_only`;

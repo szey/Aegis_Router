@@ -8,6 +8,8 @@ Status: **M1 implemented on 2026-09-14; M2–M4 remain design proposals**. This 
 
 ## 1. Recommended product direction
 
+2026-09-15 update: the [authorization/execution binding review](authorization-execution-binding.md) fixes a top-level RPC parser differential and proposes `PreparedExecution`, route-configuration binding, and resource versions as experiments before M2. Durable transactions and external environment integrations below remain pending.
+
 Keep CanonicalAction, deterministic Policy, signed Permits, workload proof, and the MCP gate. Make the next version an **execution-permit boundary that checks execution prerequisites**: an external executor gets one execution opportunity only when the current workload, environment, and exact action match.
 
 Extend the question from whether a request was authorized to whether this exact authorized action can be dispatched now in an environment satisfying its constraints. This preserves the original property that the authorized action matches the executed action; actual business meaning still depends on the trusted upstream implementing its semantic contract correctly.

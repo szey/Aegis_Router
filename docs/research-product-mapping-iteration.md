@@ -247,3 +247,17 @@ The falsifiable fixture hypothesis for this round is: “If Aegis enforces autho
 This round adds only regression fixtures and synchronized Chinese/English boundary documentation. It changes no runtime logic, dependency, semantic profile, or product scope. Nothing was automatically committed, pushed, deployed, or run on a company device.
 
 Validation: the project-contract check, targeted new fixtures, `go test ./...`, `go vet ./...`, `npm run check:web`, and `npm run build:web -- --log-level=warning` all exited 0. `go test -race ./...` first failed because `CGO_ENABLED=0`; after explicitly setting it to 1, it still failed because `gcc` is absent from PATH, so race validation was not completed for this working tree. `docker build .` failed because the Docker Desktop Linux-engine named pipe was absent; it is not recorded as passed.
+
+## 15. 2026-09-15 Authorization and actual execution binding
+
+Baseline: `6e4d77197668afe91ddcd53527c9ce4f97b17641`. The user asked about checks referring to a different object, scope, or identity than execution. The [binding review](authorization-execution-binding.md) records primary sources, dates, locators, code mapping, counterevidence, synthetic experiments, and migration design. JSON-RPC and Go decoding form one parser-differential evidence family. CWE-367, RFC 8707, MCP draft guidance, and Zanzibar do not gain validation levels from local tests.
+
+| research_id | Evidence / project observation | Single disposition / delivery |
+|---|---|---|
+| `BIND-2026-09-15-01` | `S1/V2`: no Permit/proof/identity, shipped policy and shared registry; six aliases separated Aegis protocol classification from mock upstream tool execution. Baseline tool calls=1 per case; fixed=0 | `implement` / `completed`: exact envelope keys, rebuilt protocol envelope, negative and positive/nonce-preservation controls |
+| `BIND-2026-09-15-02` | `S1/V1`: v1 digest omits route/config; default shared registry limits applicability, with no demonstrated remote exploit | `experiment` / `planned`: evaluate `PreparedExecution` and server-owned route/profile/credential bindings before M2; explicit v2 migration |
+| `BIND-2026-09-15-03` | `S1/V1`: logical path/recipient identity is not a stable object version; no actual filesystem writes exist | `experiment` / `planned`: generation-conditional writes at a mock final writer for the existing workspace profile |
+| `BIND-2026-09-15-04` | `S1/V1`: issuance policy version is not current authority epoch; existing individual Permit revocation and restart rejection still hold | `experiment` / `planned`: integrate permission ordering into M2 transactions and M4 lifecycle; explicit revocation ordering and unknown outcomes |
+| `BIND-2026-09-15-05` | `S1/V1`: obligation rejection exists; independent lease/generation and external enforcement do not | `defer` / `planned`: continue M3 broker/environment contracts without treating self-report or mocks as real isolation |
+
+This delivery changes one production Go file, preserving tokens, default policy, profile count, and deployment boundaries. New regressions and research documentation are synchronized in Chinese/English. Local Windows full Go tests, vet, frontend checks/build, and contract validation exited 0. Local race could not run without cgo, and Docker failed without the Linux daemon; final Linux CI evidence belongs to the corresponding PR head. The user's prior GitHub-push authorization remains applicable; no deployment, production access, or contract safety-flag change occurred.

@@ -23,6 +23,7 @@ CanonicalAction → deterministic authorization → signed Permit
 
 - principal、Agent、workload、delegation fingerprint、tool、capability、resource、operation 和安全参数全部进入规范动作绑定；
 - canonical JSON 必须确定性生成；对象键顺序不得改变摘要，重复键必须拒绝，数组顺序必须保留；
+- JSON-RPC 顶层成员必须精确匹配大小写；未经契约支持的成员拒绝。包括免 Permit 的协议请求在内，都必须从已分类 envelope 构造上游请求，不能回退转发另一份原始解释；
 - 摘要为 SHA-256，原始敏感参数不得进入正常审计；
 - `permit_id` 只用于关联，`permit_token` 才是签名执行凭据；ID 本身不能授权；
 - HTTP 授权身份必须来自 `TrustedAuthorizationIntake`；未配置时 fail closed，本地 body intake 必须显式开启并标为 `development_only`；

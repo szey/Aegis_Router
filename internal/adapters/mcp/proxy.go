@@ -126,9 +126,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		writeRPCError(w, http.StatusBadRequest, nil, -32700, "Invalid or ambiguous JSON-RPC request", nil)
 		return
 	}
-	var rpc rpcRequest
-	if err := json.Unmarshal(body, &rpc); err != nil || rpc.JSONRPC != "2.0" || strings.TrimSpace(rpc.Method) == "" {
-		writeRPCError(w, http.StatusBadRequest, rpc.ID, -32700, "Invalid JSON-RPC request", nil)
+	rpc, err := parseRPCEnvelope(body)
+	if err != nil {
+		writeRPCError(w, http.StatusBadRequest, nil, -32600, "Invalid or unsupported JSON-RPC envelope", nil)
 		return
 	}
 	routing, err := validateRoutingMetadata(req.Header, rpc)
@@ -150,7 +150,15 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			writeRPCError(w, http.StatusForbidden, rpc.ID, -32601, "Only MCP protocol setup, tools/list, and permit-gated tools/call are supported", nil)
 			return
 		}
-		p.forward(w, req, body, routing, models.PermitVerification{}, nil, p.controlUpstream)
+		// Forward the envelope that was classified, including for protocol
+		// requests that do not require a Permit. Never forward a second view of
+		// the caller's original envelope around the execution gate.
+		normalizedBody, err := json.Marshal(rpc)
+		if err != nil {
+			writeRPCError(w, http.StatusInternalServerError, rpc.ID, -32603, "Aegis could not construct the upstream protocol request", nil)
+			return
+		}
+		p.forward(w, req, normalizedBody, routing, models.PermitVerification{}, nil, p.controlUpstream)
 		return
 	}
 
@@ -222,6 +230,30 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	p.forward(w, req, normalizedBody, routing, verification, &action, upstream)
+}
+
+// parseRPCEnvelope is called only after the shared canonicalizer rejects
+// duplicate keys and lossy JSON. JSON-RPC member names are case-sensitive,
+// whereas encoding/json struct matching accepts case aliases. Check exact
+// envelope keys before decoding so METHOD cannot replace method during gate
+// classification while an upstream reads the original tools/call member.
+func parseRPCEnvelope(body []byte) (rpcRequest, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil || fields == nil {
+		return rpcRequest{}, fmt.Errorf("JSON-RPC envelope must be an object")
+	}
+	for key := range fields {
+		switch key {
+		case "jsonrpc", "id", "method", "params":
+		default:
+			return rpcRequest{}, fmt.Errorf("unsupported JSON-RPC envelope member")
+		}
+	}
+	var rpc rpcRequest
+	if err := json.Unmarshal(body, &rpc); err != nil || rpc.JSONRPC != "2.0" || strings.TrimSpace(rpc.Method) == "" {
+		return rpcRequest{}, fmt.Errorf("invalid JSON-RPC envelope")
+	}
+	return rpc, nil
 }
 
 func normalizedToolCallBody(rpc rpcRequest, params toolCallParams, normalizedArguments json.RawMessage) ([]byte, error) {

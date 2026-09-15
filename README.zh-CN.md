@@ -39,6 +39,7 @@ Aegis 不是沙箱、EDR、IAM、Agent 管理平台或企业 Inventory 产品。
 - **未实现：**审批完成流程、sandbox/EDR/IAM、业务副作用 exactly-once、第三个或动态加载的语义配置、额外执行 Adapter、真实文件系统写入，以及完整 MCP 协议兼容。`REQUIRES_APPROVAL` 目前只是模型/配置结果，没有受支持的审批流程可以把它转换成可执行 Permit。
 
 - **M1 已实现：**五类签名执行要求在消费前统一默认拒绝；拒绝原因写入 receipt；固定 MCP 路由不跟随重定向。当前无外部实施方，带这些要求的真实执行均拒绝。
+- **2026-09-15 边界修复：**MCP 顶层字段按精确大小写检查，协议转发使用同一已分类 envelope，阻止解析差异绕过 Permit。研究、对照结果及路由/资源版本的后续设计见[授权与执行一致性](docs/authorization-execution-binding.zh-CN.md)。
 
 ## 核心对象
 
