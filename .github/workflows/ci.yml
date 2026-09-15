@@ -32,7 +32,7 @@ jobs:
 
       - name: Check formatting
         shell: bash
-        run: test -z "$(gofmt -l $(find cmd internal web -type f -name '*.go'))"
+        run: test -z "$(gofmt -l $(find cmd internal web experiments -type f -name '*.go'))"
 
       - name: Vet
         run: go vet ./...

@@ -8,7 +8,7 @@ Status: **M1 implemented on 2026-09-14; M2–M4 remain design proposals**. This 
 
 ## 1. Recommended product direction
 
-2026-09-15 update: the [authorization/execution binding review](authorization-execution-binding.md) fixes a top-level RPC parser differential and proposes `PreparedExecution`, route-configuration binding, and resource versions as experiments before M2. Durable transactions and external environment integrations below remain pending.
+2026-09-15 update: [PreparedExecution](prepared-execution.md) implements route/configuration/anonymous identity binding, Policy checks on actual arguments, process-local authority epochs, and synthetic resource/lease contract experiments. Full M2–M4 milestones remain incomplete: durable transactions, real conditional resource commits, and external brokers are not integrated. See the [binding review](authorization-execution-binding.md) for the original research and first envelope fix.
 
 Keep CanonicalAction, deterministic Policy, signed Permits, workload proof, and the MCP gate. Make the next version an **execution-permit boundary that checks execution prerequisites**: an external executor gets one execution opportunity only when the current workload, environment, and exact action match.
 

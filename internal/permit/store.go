@@ -17,9 +17,10 @@ const (
 )
 
 var (
-	ErrPermitExists    = errors.New("execution permit already exists")
-	ErrPermitNotFound  = errors.New("execution permit not found")
-	ErrPermitNotActive = errors.New("execution permit is not active")
+	ErrPermitExists     = errors.New("execution permit already exists")
+	ErrPermitNotFound   = errors.New("execution permit not found")
+	ErrPermitNotActive  = errors.New("execution permit is not active")
+	ErrAuthorityChanged = errors.New("execution authority is disabled or its epoch changed")
 )
 
 // Record is safe to list or audit: it never contains the execution credential
@@ -49,6 +50,8 @@ type ConsumeResult struct {
 
 // Store is the atomic lifecycle boundary used by the verifier.
 type Store interface {
+	Authority(key AuthorityKey) AuthorityState
+	SetAuthorityEnabled(key AuthorityKey, enabled bool, at time.Time) (AuthorityState, error)
 	Register(claims Claims) error
 	Get(permitID string, now time.Time) (Record, bool)
 	List(now time.Time) []Record
@@ -59,8 +62,9 @@ type Store interface {
 // MemoryStore is a concurrency-safe MVP replay guard. Production deployments
 // with more than one verifier process require a shared atomic store.
 type MemoryStore struct {
-	mu      sync.Mutex
-	records map[string]Record
+	mu          sync.Mutex
+	records     map[string]Record
+	authorities map[AuthorityKey]AuthorityState
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -78,6 +82,12 @@ func (s *MemoryStore) Register(claims Claims) error {
 	}
 	if _, exists := s.records[claims.PermitID]; exists {
 		return ErrPermitExists
+	}
+	if claims.ExecutionBinding != "" {
+		authority := s.authorityLocked(claims.AuthorityKey())
+		if !authority.Enabled || claims.AuthorityEpoch != authority.Epoch {
+			return ErrAuthorityChanged
+		}
 	}
 	s.records[claims.PermitID] = Record{Claims: claims, State: StateIssued}
 	return nil
@@ -123,6 +133,15 @@ func (s *MemoryStore) Consume(permitID string, now time.Time) ConsumeResult {
 	record = expireIfNeeded(record, now)
 	switch record.State {
 	case StateIssued:
+		if record.Claims.ExecutionBinding != "" {
+			authority := s.authorityLocked(record.Claims.AuthorityKey())
+			if !authority.Enabled || record.Claims.AuthorityEpoch != authority.Epoch {
+				at := now.UTC()
+				record.State, record.RevokedAt = StateRevoked, &at
+				s.records[permitID] = record
+				return ConsumeResult{Outcome: ConsumeRevoked, Record: cloneRecord(record)}
+			}
+		}
 		at := now.UTC()
 		record.State = StateConsumed
 		record.ConsumedAt = &at

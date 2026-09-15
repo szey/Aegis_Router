@@ -6,6 +6,8 @@ English | [简体中文](project-brief.zh-CN.md)
 
 The 2026-09-13 [redesign proposal](manus-redesign.md) has an implemented first stage: [M1 execution admission and fixed routes](m1-execution-admission.md). Unsupported obligations reject before consumption; redirects cannot expand the target. Durable state, environment leases and lifecycle remain subsequent stages. The project contract is unchanged.
 
+The real MCP path uses [PreparedExecution and Permit v2](prepared-execution.md) to bind the exact route, profile configuration, and anonymous upstream identity, with Policy rechecking bytes/effects derived from actual arguments. Authority epochs are checked under the registration/consumption lock; disable, re-enable, and refresh invalidate old Permits. Epoch/disabled state is not durable and must be reestablished by trusted code after restart. Resource/lease evidence is synthetic only; no real broker is integrated.
+
 ## One-line position
 
 Aegis_Router is a framework-agnostic execution-permit layer with server-owned semantic action profiles. It first evaluates deterministic Policy eligibility, then resolves a granted request into an exact normalized action, issues a short-lived, signed, action-bound, single-use permit, and requires the MCP execution boundary to verify and consume it before the real side effect.
@@ -93,7 +95,7 @@ Permit claims include at least:
 - `action_digest` and `policy_version`;
 - `issued_at`, `expires_at`, and `single_use=true`.
 
-The MVP token is a project-specific Ed25519-signed compact format: `base64url(header).base64url(payload).base64url(signature)`, with `alg=EdDSA`, `typ=AEGIS-PERMIT`, `v=1`, and `kid` in its header. The unverified `kid` only selects a KeyProvider public key; after signature verification it must match the signed `signing_key_id` claim. The format borrows the JWS shape but does not claim general JWT/JWS interoperability.
+The MVP token is a project-specific Ed25519-signed compact format: `base64url(header).base64url(payload).base64url(signature)`, with `alg=EdDSA`, `typ=AEGIS-PERMIT`, `v=2`, and `kid` in its header. The unverified `kid` only selects a KeyProvider public key; after signature verification it must match the signed `signing_key_id` claim. The format borrows the JWS shape but does not claim general JWT/JWS interoperability.
 
 TTL uses whole seconds, defaults to 30 seconds, and is currently capped at 15 minutes.
 
@@ -158,3 +160,5 @@ No process, OAuth, CI/CD, cloud, or central enterprise Inventory expansion is pl
 The focused MVP is complete only when it repeatedly proves that an exact action is authorized and receives a signed Permit; the MCP boundary verifies and consumes it before the upstream call; any bound-field change blocks execution; a consumed Permit cannot replay; and the full audit chain leaks neither the token nor sensitive payload.
 
 Even when every local test passes, this remains a reference implementation. An in-process Store, default ephemeral development key, local audit, a deployment boundary not yet connected to real authenticated middleware, and incomplete independent review are not production guarantees.
+
+Migration: real execution Permits must be reissued as v2. v1 remains for core compatibility/simulation; the current MCP path rejects old v1 execution Permits.

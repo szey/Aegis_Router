@@ -261,3 +261,16 @@ collect evidence → trace primary source → choose disposition
 | `BIND-2026-09-15-05` | `S1/V1`：obligation 拒绝已经实现；独立 lease/generation 与外部实施方尚缺 | `defer` / `planned`：继续 M3 broker/环境契约，不以自报或 mock 宣称真实隔离 |
 
 本轮改变一处生产 Go 文件，保留 token、默认策略、profile 数量和部署边界。新增回归与研究文档同步中英文。Windows 的全量 Go 测试、vet、前端类型检查/构建、项目契约校验退出 0；本机 race 因缺少 cgo、Docker 因 Linux daemon 不可用未通过，Linux CI 状态以对应 PR head 为准。沿用用户此前对 GitHub 推送的授权；没有部署、访问生产或改动契约中的安全标志。
+
+## 16. 2026-09-15 PreparedExecution 实现
+
+基线 `797b9c5c4e3b0d69a36e5d27619c1aace3d2da01`；本节更新第 15 节的历史状态，复用其一手来源，不把引用变成本地运行证据。完整机制、迁移、对照和限制见[实现记录](prepared-execution.zh-CN.md)。
+
+| research_id | 单一处置 / 状态 | 证据与未完成范围 |
+|---|---|---|
+| `BIND-2026-09-15-02` | `implement` / `completed` | `S1/V2`：两组 route/config 漂移从调用 1 次变为 0；PreparedExecution、匿名身份与 Permit v2 已接 MCP。新增三组字节/副作用低报从签发变为拒绝。 |
+| `BIND-2026-09-15-03` | `experiment` / `completed` | 合成最终 writer 的对象 ID/generation/namespace 比较；真实资源接入仍 planned，未证明文件系统隔离。 |
+| `BIND-2026-09-15-04` | `implement` / `completed`（仅本地 epoch 子集） | `S1/V2`：禁用、重新启用、旧判断注册及 64 组竞争通过。禁用状态不持久；M2 原子事务和 M4 完整生命周期未完成。 |
+| `BIND-2026-09-15-05` | `experiment` / `completed`（仅合成契约） | 八组资源/lease 变更对照：动作检查均写 1 次，最终版本比较均写 0 次；32 竞争写入仅 1 次。真实 controller/环境仍 V1，未部署。 |
+
+验证覆盖完整 Go 测试、vet、frontend 和项目契约；本机 race/Docker 环境缺失及 Linux CI 的最终结果单独记入 PR。保持默认义务、两个 profile、唯一 MCP Adapter 和安全标志；不部署或访问生产数据。

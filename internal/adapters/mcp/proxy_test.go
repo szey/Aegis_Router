@@ -55,7 +55,7 @@ func TestValidPermitInvokesMCPUpstreamExactlyOnceAndAuditsReceipt(t *testing.T) 
 	}))
 	defer upstream.Close()
 
-	r, store, auditPath := testRouter(t)
+	r, store, auditPath := testRouter(t, upstream.URL)
 	action := paymentRequest(`{"currency":"USD","recipient":"merchant-456","amount_minor":100}`)
 	authorized, err := authorizeAction(t, r, action)
 	if err != nil {
@@ -114,7 +114,7 @@ func TestWorkloadExecutionProofFailuresNeverConsumePermitOrReachUpstream(t *test
 			_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{}}`)
 		}))
 		t.Cleanup(upstream.Close)
-		r, store, _ := testRouter(t)
+		r, store, _ := testRouter(t, upstream.URL)
 		action := validPaymentRequest()
 		authorized, err := authorizeAction(t, r, action)
 		if err != nil {
@@ -413,7 +413,7 @@ func TestActionMutationNeverInvokesMCPUpstream(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer upstream.Close()
-			r, store, _ := testRouter(t)
+			r, store, _ := testRouter(t, upstream.URL)
 			action := paymentRequest(`{"amount_minor":100,"currency":"USD","recipient":"merchant-456"}`)
 			authorized, err := authorizeAction(t, r, action)
 			if err != nil {
@@ -439,7 +439,7 @@ func TestInvalidSignatureNeverInvokesMCPUpstream(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
-	r, store, auditPath := testRouter(t)
+	r, store, auditPath := testRouter(t, upstream.URL)
 	action := validPaymentRequest()
 	authorized, _ := authorizeAction(t, r, action)
 	token := authorized.Permit.PermitToken
@@ -480,7 +480,7 @@ func TestSimulationPermitNeverInvokesMCPUpstream(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
-	r, store, _ := testRouter(t)
+	r, store, _ := testRouter(t, upstream.URL)
 	if err := r.RegisterWorkloadPublicKey(testWorkloadKeyID, testWorkloadPrivateKey().Public().(ed25519.PublicKey)); err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +535,7 @@ func TestAllBoundPermitFailuresNeverInvokeMCPUpstream(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer upstream.Close()
-			r, _, _ := testRouter(t)
+			r, _, _ := testRouter(t, upstream.URL)
 			authorizedAction := paymentRequest(`{"amount_minor":100,"currency":"USD","recipient":"merchant-456"}`)
 			authorized, err := authorizeAction(t, r, authorizedAction)
 			if err != nil {
@@ -564,7 +564,7 @@ func TestReplayExpiredAndRevokedPermitsNeverAddAnUpstreamCall(t *testing.T) {
 			_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{}}`)
 		}))
 		defer upstream.Close()
-		r, store, _ := testRouter(t)
+		r, store, _ := testRouter(t, upstream.URL)
 		action := validPaymentRequest()
 		authorized, _ := authorizeAction(t, r, action)
 		proxy := newProxy(t, r, upstream.URL, nil)
@@ -615,7 +615,7 @@ func TestReplayExpiredAndRevokedPermitsNeverAddAnUpstreamCall(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer upstream.Close()
-		r, _, _ := testRouter(t)
+		r, _, _ := testRouter(t, upstream.URL)
 		action := validPaymentRequest()
 		authorized, _ := authorizeAction(t, r, action)
 		if _, err := r.RevokePermit(authorized.Permit.PermitID); err != nil {
@@ -640,7 +640,7 @@ func TestFailedUpstreamDoesNotRestorePermitAndRetryRequiresNewAuthorization(t *t
 	}))
 	defer upstream.Close()
 
-	r, store, _ := testRouter(t)
+	r, store, _ := testRouter(t, upstream.URL)
 	action := validPaymentRequest()
 	firstAuthorization, err := authorizeAction(t, r, action)
 	if err != nil {
@@ -689,7 +689,7 @@ func TestTimedOutUpstreamDoesNotRestoreConsumedPermit(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	r, store, _ := testRouter(t)
+	r, store, _ := testRouter(t, upstream.URL)
 	action := validPaymentRequest()
 	authorized, err := authorizeAction(t, r, action)
 	if err != nil {
@@ -721,7 +721,7 @@ func TestConcurrentMCPReplayInvokesUpstreamExactlyOnce(t *testing.T) {
 		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{}}`)
 	}))
 	defer upstream.Close()
-	r, store, _ := testRouter(t)
+	r, store, _ := testRouter(t, upstream.URL)
 	action := validPaymentRequest()
 	authorized, err := authorizeAction(t, r, action)
 	if err != nil {
@@ -771,7 +771,7 @@ func TestUnmappedMCPToolFailsClosedBeforePermitConsumption(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
-	r, _, _ := testRouter(t)
+	r, _, _ := testRouter(t, upstream.URL)
 	authorizedAction := paymentRequest(`{"amount_minor":100,"currency":"USD","recipient":"merchant-456"}`)
 	authorized, err := authorizeAction(t, r, authorizedAction)
 	if err != nil {
@@ -796,7 +796,7 @@ func TestModernMCPHeaderOrBodyAmbiguityNeverInvokesUpstream(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
-	r, _, _ := testRouter(t)
+	r, _, _ := testRouter(t, upstream.URL)
 	action := validPaymentRequest()
 	authorized, err := authorizeAction(t, r, action)
 	if err != nil {
@@ -852,7 +852,7 @@ func TestModernSkillsExtensionMethodsFailClosed(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
-	r, _, _ := testRouter(t)
+	r, _, _ := testRouter(t, upstream.URL)
 	proxy := newProxy(t, r, upstream.URL, nil)
 
 	tests := []struct {
@@ -890,7 +890,7 @@ func TestModernServerDiscoverPassesThroughWithoutPermit(t *testing.T) {
 		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{},"ttlMs":0,"cacheScope":"private"}}`)
 	}))
 	defer upstream.Close()
-	r, _, _ := testRouter(t)
+	r, _, _ := testRouter(t, upstream.URL)
 	proxy := newProxy(t, r, upstream.URL, nil)
 	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`)
 	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
@@ -1016,7 +1016,7 @@ func authorizeAction(t *testing.T, r *router.Router, request models.Request) (mo
 	return r.AuthorizeTrustedAction(authorization)
 }
 
-func testRouter(t *testing.T) (*router.Router, *audit.Store, string) {
+func testRouter(t *testing.T, upstreamURL string) (*router.Router, *audit.Store, string) {
 	t.Helper()
 	cfg, err := config.Load(filepath.Join("..", "..", "..", "configs", "policy.json"))
 	if err != nil {
@@ -1027,6 +1027,7 @@ func testRouter(t *testing.T) (*router.Router, *audit.Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.SemanticActions.PaymentSendV1.UpstreamURL = upstreamURL
 	return router.New(unconstrainedMockPolicy(cfg), store), store, path
 }
 

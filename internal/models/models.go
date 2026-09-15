@@ -347,6 +347,8 @@ type DispatchDecision struct {
 }
 
 type AuthorizationEnvelope struct {
+	AuthorityEpoch                 uint64                   `json:"authority_epoch,omitempty"`
+	ExecutionBinding               string                   `json:"execution_binding,omitempty"`
 	PermitID                       string                   `json:"permit_id"`
 	SigningKeyID                   string                   `json:"signing_key_id"`
 	PermitClass                    string                   `json:"permit_class"`
@@ -380,15 +382,17 @@ type AuthorizationEnvelope struct {
 // PermitCredential is returned only to the caller that requested a new
 // authorization. PermitToken is never embedded in AuditRecord or PermitView.
 type PermitCredential struct {
-	PermitID     string    `json:"permit_id"`
-	SigningKeyID string    `json:"signing_key_id"`
-	PermitClass  string    `json:"permit_class"`
-	ProfileID    string    `json:"profile_id,omitempty"`
-	Audience     string    `json:"audience,omitempty"`
-	PermitToken  string    `json:"permit_token"`
-	IssuedAt     time.Time `json:"issued_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	SingleUse    bool      `json:"single_use"`
+	AuthorityEpoch   uint64    `json:"authority_epoch,omitempty"`
+	ExecutionBinding string    `json:"execution_binding,omitempty"`
+	PermitID         string    `json:"permit_id"`
+	SigningKeyID     string    `json:"signing_key_id"`
+	PermitClass      string    `json:"permit_class"`
+	ProfileID        string    `json:"profile_id,omitempty"`
+	Audience         string    `json:"audience,omitempty"`
+	PermitToken      string    `json:"permit_token"`
+	IssuedAt         time.Time `json:"issued_at"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	SingleUse        bool      `json:"single_use"`
 }
 
 type ActionAuthorizationResponse struct {
@@ -397,6 +401,8 @@ type ActionAuthorizationResponse struct {
 }
 
 type PermitVerification struct {
+	AuthorityEpoch   uint64                       `json:"authority_epoch,omitempty"`
+	ExecutionBinding string                       `json:"execution_binding,omitempty"`
 	PermitID         string                       `json:"permit_id,omitempty"`
 	RequestID        string                       `json:"request_id,omitempty"`
 	PermitClass      string                       `json:"permit_class,omitempty"`
@@ -412,6 +418,8 @@ type PermitVerification struct {
 }
 
 type ExecutionReceipt struct {
+	AuthorityEpoch        uint64                       `json:"authority_epoch,omitempty"`
+	ExecutionBinding      string                       `json:"execution_binding,omitempty"`
 	RequestID             string                       `json:"request_id"`
 	DecisionID            string                       `json:"decision_id"`
 	PermitID              string                       `json:"permit_id,omitempty"`

@@ -6,6 +6,8 @@ This document applies to **Aegis_Router — Execution Permits for AI Agent Actio
 
 The 2026-09-13 [redesign proposal](docs/manus-redesign.md) is now followed by the [M1 implementation](docs/m1-execution-admission.md): pre-consumption obligation rejection and fixed-route redirect blocking. External controllers, environment leases and independent durable audit remain unimplemented. A signed lease is not hardware attestation, and a tool-call Permit is not sandbox-escape protection.
 
+The real MCP path uses [PreparedExecution and Permit v2](docs/prepared-execution.md) to bind the exact route, profile configuration, and anonymous upstream identity, with Policy rechecking bytes/effects derived from actual arguments. Authority epochs are checked under the registration/consumption lock; disable, re-enable, and refresh invalidate old Permits. Epoch/disabled state is not durable and must be reestablished by trusted code after restart. Resource/lease evidence is synthetic only; no real broker is integrated.
+
 ## Reporting a vulnerability
 
 Do not disclose a suspected vulnerability in a public issue. If GitHub Private Vulnerability Reporting is enabled, use it and include the affected version/commit, a minimal safe reproduction, expected and actual verification results, whether the upstream tool was called, potential impact, and a feasible mitigation.

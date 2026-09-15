@@ -40,6 +40,7 @@ The security boundary is **before the real tool side effect**. `POST /api/runtim
 
 - **M1 implemented:** all five signed execution requirements fail closed before consumption, with receipt diagnostics; fixed MCP routes never follow redirects. Without external enforcers, real execution carrying any of these requirements rejects.
 - **2026-09-15 boundary fix:** exact, case-sensitive MCP envelope keys and forwarding of the classified envelope prevent a parser differential from bypassing Permits. See [authorization/execution binding](docs/authorization-execution-binding.md) for research, comparisons, and proposed route/resource-version work.
+- The real MCP path uses [PreparedExecution and Permit v2](docs/prepared-execution.md) to bind the exact route, profile configuration, and anonymous upstream identity, with Policy rechecking bytes/effects derived from actual arguments. Authority epochs are checked under the registration/consumption lock; disable, re-enable, and refresh invalidate old Permits. Epoch/disabled state is not durable and must be reestablished by trusted code after restart. Resource/lease evidence is synthetic only; no real broker is integrated.
 
 ## Core objects
 
@@ -72,7 +73,7 @@ policy_version       issued_at / expires_at
 single_use=true
 ```
 
-The focused MVP uses an Ed25519-signed compact token: `base64url(header).base64url(payload).base64url(signature)`. Its header carries `alg=EdDSA`, `typ=AEGIS-PERMIT`, `v=1`, and `kid=<signing_key_id>`. The unverified header `kid` only selects a public key from the KeyProvider; after signature verification it must also match the signed `signing_key_id` claim. This is a project-specific JWS-shaped format and does not claim general JWT/JWS interoperability.
+The focused MVP uses an Ed25519-signed compact token: `base64url(header).base64url(payload).base64url(signature)`. Its header carries `alg=EdDSA`, `typ=AEGIS-PERMIT`, `v=2`, and `kid=<signing_key_id>`. The unverified header `kid` only selects a public key from the KeyProvider; after signature verification it must also match the signed `signing_key_id` claim. This is a project-specific JWS-shaped format and does not claim general JWT/JWS interoperability.
 
 TTL uses whole seconds, defaults to 30 seconds, and is currently capped at 15 minutes.
 
@@ -310,3 +311,5 @@ The frontend source is `web/src/app.ts`; the generated `web/static/app.js` is co
 ## License
 
 [MIT](LICENSE)
+
+Migration: real execution Permits must be reissued as v2. v1 remains for core compatibility/simulation; the current MCP path rejects old v1 execution Permits.

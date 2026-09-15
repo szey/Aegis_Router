@@ -61,6 +61,15 @@ type Resolved struct {
 	Action              canonicalaction.Action
 	NormalizedArguments json.RawMessage
 	UpstreamURL         string
+	PolicyFacts         PolicyFacts
+}
+
+// PolicyFacts are derived by the compiled profile from the actual operation
+// and normalized payload. Bytes means UTF-8 content bytes for workspace writes
+// and normalized argument bytes for payments; it never represents money.
+type PolicyFacts struct {
+	SideEffect string
+	Bytes      int64
 }
 
 // Profile is the entire semantic extension contract. Implementations are
@@ -69,5 +78,6 @@ type Profile interface {
 	ProfileID() string
 	Tool() string
 	UpstreamURL() string
+	BindingDigest() string
 	Resolve(Input) (Resolved, error)
 }

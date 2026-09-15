@@ -39,6 +39,7 @@ type WorkspaceWriteArguments struct {
 }
 
 type WorkspaceWriteV1 struct {
+	binding         string
 	config          models.WorkspaceWriteV1Config
 	maxPathBytes    int
 	maxContentBytes int
@@ -69,13 +70,23 @@ func NewWorkspaceWriteV1(config models.WorkspaceWriteV1Config) (*WorkspaceWriteV
 	if maxContentBytes < 1 || maxContentBytes > canonicalaction.MaxArgumentsBytes {
 		return nil, fmt.Errorf("%s max_content_bytes is outside the supported range", WorkspaceWriteV1ID)
 	}
-	return &WorkspaceWriteV1{config: config, maxPathBytes: maxPathBytes, maxContentBytes: maxContentBytes, upstream: upstream}, nil
+	if upstream.User != nil || upstream.Fragment != "" || upstream.RawQuery != "" || upstream.ForceQuery {
+		return nil, fmt.Errorf("%s upstream cannot contain credentials, query, or fragment", WorkspaceWriteV1ID)
+	}
+	config.UpstreamURL = upstream.String()
+	config.MaxPathBytes, config.MaxContentBytes = maxPathBytes, maxContentBytes
+	binding, err := executionBinding(config, upstream.String())
+	if err != nil {
+		return nil, err
+	}
+	return &WorkspaceWriteV1{config: config, maxPathBytes: maxPathBytes, maxContentBytes: maxContentBytes, upstream: upstream, binding: binding}, nil
 }
 
-func (p *WorkspaceWriteV1) Tool() string        { return p.config.MCPTool }
-func (p *WorkspaceWriteV1) ProfileID() string   { return p.config.ProfileID }
-func (p *WorkspaceWriteV1) Audience() string    { return p.config.Audience }
-func (p *WorkspaceWriteV1) UpstreamURL() string { return p.upstream.String() }
+func (p *WorkspaceWriteV1) Tool() string          { return p.config.MCPTool }
+func (p *WorkspaceWriteV1) ProfileID() string     { return p.config.ProfileID }
+func (p *WorkspaceWriteV1) Audience() string      { return p.config.Audience }
+func (p *WorkspaceWriteV1) UpstreamURL() string   { return p.upstream.String() }
+func (p *WorkspaceWriteV1) BindingDigest() string { return p.binding }
 
 func (p *WorkspaceWriteV1) Resolve(input Input) (Resolved, error) {
 	if p == nil || input.Tool != p.config.MCPTool {
@@ -106,7 +117,8 @@ func (p *WorkspaceWriteV1) Resolve(input Input) (Resolved, error) {
 		Operation: p.config.Operation, ProfileID: p.config.ProfileID, Audience: p.config.Audience,
 		Arguments: normalized,
 	}
-	return Resolved{Action: action, NormalizedArguments: normalized, UpstreamURL: p.upstream.String()}, nil
+	return Resolved{Action: action, NormalizedArguments: normalized, UpstreamURL: p.upstream.String(),
+		PolicyFacts: PolicyFacts{SideEffect: "logical_workspace_write", Bytes: int64(len(arguments.Content))}}, nil
 }
 
 func (p *WorkspaceWriteV1) parseArguments(raw json.RawMessage) (WorkspaceWriteArguments, error) {

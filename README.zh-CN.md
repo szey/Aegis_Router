@@ -40,6 +40,7 @@ Aegis 不是沙箱、EDR、IAM、Agent 管理平台或企业 Inventory 产品。
 
 - **M1 已实现：**五类签名执行要求在消费前统一默认拒绝；拒绝原因写入 receipt；固定 MCP 路由不跟随重定向。当前无外部实施方，带这些要求的真实执行均拒绝。
 - **2026-09-15 边界修复：**MCP 顶层字段按精确大小写检查，协议转发使用同一已分类 envelope，阻止解析差异绕过 Permit。研究、对照结果及路由/资源版本的后续设计见[授权与执行一致性](docs/authorization-execution-binding.zh-CN.md)。
+- 当前真实 MCP 路径使用 [PreparedExecution 与 Permit v2](docs/prepared-execution.zh-CN.md)，绑定精确路由、profile 配置和匿名上游身份，并从实际参数重算字节数/副作用后检查 Policy。权限 epoch 在注册与消费锁内核对；停用、重新启用或刷新都使旧许可失效。epoch/禁用状态不持久，重启需可信系统重建；资源/lease 只有合成契约实验，真实 broker 尚未接入。
 
 ## 核心对象
 
@@ -72,7 +73,7 @@ policy_version       issued_at / expires_at
 single_use=true
 ```
 
-聚焦版 MVP 使用 Ed25519 签名的紧凑 token：`base64url(header).base64url(payload).base64url(signature)`；Header 使用 `alg=EdDSA`、`typ=AEGIS-PERMIT`、`v=1` 与 `kid=<signing_key_id>`。Header 的未验证 `kid` 只用于向 KeyProvider 选择公钥，签名验证后还必须与 claims 内的 `signing_key_id` 一致。这是项目自有的 JWS 形态，不声称具备通用 JWT/JWS 互操作性。
+聚焦版 MVP 使用 Ed25519 签名的紧凑 token：`base64url(header).base64url(payload).base64url(signature)`；Header 使用 `alg=EdDSA`、`typ=AEGIS-PERMIT`、`v=2` 与 `kid=<signing_key_id>`。Header 的未验证 `kid` 只用于向 KeyProvider 选择公钥，签名验证后还必须与 claims 内的 `signing_key_id` 一致。这是项目自有的 JWS 形态，不声称具备通用 JWT/JWS 互操作性。
 
 TTL 必须是整秒，默认 30 秒，当前最大 15 分钟。
 
@@ -312,3 +313,5 @@ docker build .
 ## 许可证
 
 [MIT](LICENSE)
+
+迁移：真实 execution Permit 必须重新签发为 v2；v1 仅保留底层兼容/模拟用途，当前 MCP 不接受旧 v1 执行许可。

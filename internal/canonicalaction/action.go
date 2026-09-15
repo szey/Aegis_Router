@@ -52,6 +52,7 @@ type Action struct {
 	Operation                     string
 	ProfileID                     string
 	Audience                      string
+	ExecutionBinding              string
 	Arguments                     json.RawMessage
 }
 
@@ -81,6 +82,9 @@ func (a Action) Validate() error {
 	}
 	if a.DelegatedAuthorityFingerprint != "" && !fingerprintBinding.MatchString(a.DelegatedAuthorityFingerprint) {
 		return fmt.Errorf("%w: delegated_authority_fingerprint must be an Aegis-bound SHA-256 digest", ErrInvalidAction)
+	}
+	if a.ExecutionBinding != "" && !fingerprintBinding.MatchString(a.ExecutionBinding) {
+		return fmt.Errorf("%w: execution_binding must be a SHA-256 digest", ErrInvalidAction)
 	}
 	if (a.ProfileID == "") != (a.Audience == "") {
 		return fmt.Errorf("%w: profile_id and audience must be present together", ErrInvalidAction)
@@ -151,6 +155,9 @@ func (a Action) CanonicalJSON() ([]byte, error) {
 	}
 
 	var output bytes.Buffer
+	if a.ExecutionBinding != "" {
+		value["execution_binding"] = a.ExecutionBinding
+	}
 	if err := writeCanonicalJSON(&output, value); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidJSON, err)
 	}

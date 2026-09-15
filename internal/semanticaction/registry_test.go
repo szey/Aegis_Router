@@ -12,8 +12,9 @@ type stubProfile struct {
 	tool string
 }
 
-func (p stubProfile) ProfileID() string { return p.id }
-func (p stubProfile) Tool() string      { return p.tool }
+func (p stubProfile) ProfileID() string     { return p.id }
+func (p stubProfile) Tool() string          { return p.tool }
+func (p stubProfile) BindingDigest() string { return "" }
 func (p stubProfile) UpstreamURL() string {
 	return "http://127.0.0.1/mcp"
 }
