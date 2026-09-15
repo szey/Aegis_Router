@@ -39,6 +39,7 @@ The security boundary is **before the real tool side effect**. `POST /api/runtim
 - **Not implemented:** an approval completion workflow, sandbox/EDR/IAM, business exactly-once delivery, a third or dynamically loaded semantic profile, additional execution adapters, real filesystem writes, and full MCP protocol conformance. `REQUIRES_APPROVAL` remains a model/config result only; no supported approval flow can turn it into an executable Permit.
 
 - **M1 implemented:** all five signed execution requirements fail closed before consumption, with receipt diagnostics; fixed MCP routes never follow redirects. Without external enforcers, real execution carrying any of these requirements rejects.
+- **2026-09-15 boundary fix:** exact, case-sensitive MCP envelope keys and forwarding of the classified envelope prevent a parser differential from bypassing Permits. See [authorization/execution binding](docs/authorization-execution-binding.md) for research, comparisons, and proposed route/resource-version work.
 
 ## Core objects
 

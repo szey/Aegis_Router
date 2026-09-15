@@ -14,6 +14,8 @@
 
 ## 信任边界
 
+2026-09-15 修复了 MCP envelope 大小写解析差异：旧版本可能把上游的 `tools/call` 分类为无需 Permit 的协议方法。当前仅接受精确的 `jsonrpc/id/method/params` 顶层成员，并从已检查的 envelope 重建协议请求；未知顶层扩展和大小写别名在上游前拒绝。详见[复现、兼容影响与剩余边界](docs/authorization-execution-binding.zh-CN.md)。该修复不提供稳定资源版本、端点归属或即时权限撤销保证。
+
 Aegis 是参考实现，不是经独立评审的生产安全边界。它只保护实际经过其 verifier/MCP Adapter 的工具调用；绕过该边界的行为不会因为安装 Aegis 而自动被发现或阻止。
 
 核心控制首先验证可信的结构化请求，并针对其 capability、resource、operation 与 tool 进行确定性 Policy 资格判断。只有 Policy 授权后，服务端拥有的语义配置才会把精确的可执行含义解析为 `CanonicalAction`。Policy 资格判断与语义解析都成功，Aegis 才会签发短时、动作绑定、单次使用的签名 `permit_token`。任何语义冲突或规范化失败都会在 Permit 签发前把结果转为 `DENIED`。仅有 Policy 授权不足以产生 Execution Permit，语义配置解析也绝不会覆盖 Policy 拒绝。
